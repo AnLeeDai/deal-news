@@ -1,0 +1,82 @@
+services:
+  - type: web
+    name: deal-news
+    runtime: docker
+    plan: 0.5c-512mb
+    region: singapore
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /up
+    preDeployCommand: php artisan migrate --force --no-interaction
+    maxShutdownDelaySeconds: 60
+    envVars:
+      - fromGroup: deal-news-production
+      - key: APP_KEY
+        sync: false
+      - key: APP_URL
+        sync: false
+      - key: DB_URL
+        sync: false
+
+  - type: worker
+    name: deal-news-worker
+    runtime: docker
+    plan: 0.5c-512mb
+    region: singapore
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    dockerCommand: php artisan queue:work --sleep=3 --tries=3 --backoff=5 --timeout=60 --memory=128 --max-jobs=1000 --max-time=3600 --no-interaction
+    maxShutdownDelaySeconds: 90
+    envVars:
+      - fromGroup: deal-news-production
+      - key: APP_KEY
+        fromService:
+          type: web
+          name: deal-news
+          envVarKey: APP_KEY
+      - key: APP_URL
+        fromService:
+          type: web
+          name: deal-news
+          envVarKey: APP_URL
+      - key: DB_URL
+        fromService:
+          type: web
+          name: deal-news
+          envVarKey: DB_URL
+
+envVarGroups:
+  - name: deal-news-production
+    envVars:
+      - key: APP_NAME
+        value: Deal News
+      - key: APP_ENV
+        value: production
+      - key: APP_DEBUG
+        value: 'false'
+      - key: LOG_CHANNEL
+        value: stderr
+      - key: LOG_LEVEL
+        value: warning
+      - key: DB_CONNECTION
+        value: mysql
+      - key: CACHE_STORE
+        value: database
+      - key: SESSION_DRIVER
+        value: database
+      - key: SESSION_SECURE_COOKIE
+        value: 'true'
+      - key: QUEUE_CONNECTION
+        value: database
+      - key: DB_QUEUE_RETRY_AFTER
+        value: '90'
+      - key: FILESYSTEM_DISK
+        value: s3
+      - key: TRUSTED_PROXIES
+        value: '*'
+      - key: PHP_THREADS
+        value: '2'
+      - key: GOMEMLIMIT
+        value: 128MiB
+      - key: MAIL_MAILER
+        value: log

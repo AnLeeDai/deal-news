@@ -1,0 +1,43 @@
+{
+	admin off
+	auto_https off
+	grace_period 30s
+	frankenphp {
+		num_threads {$PHP_THREADS:2}
+		max_threads {$PHP_THREADS:2}
+		max_wait_time 10s
+	}
+}
+
+:{$PORT:8080} {
+	root * /app/public
+	encode zstd gzip
+
+	header {
+		X-Frame-Options SAMEORIGIN
+		X-Content-Type-Options nosniff
+		-Server
+		-X-Powered-By
+	}
+
+	@hidden {
+		path_regexp hidden (^|/)\.
+		not path /.well-known/*
+	}
+	respond @hidden 404
+
+	@otherPhp {
+		path_regexp php (?i)\.php($|/)
+		not path /index.php /index.php/*
+	}
+	respond @otherPhp 404
+
+	php_server {
+		try_files {path} index.php
+	}
+
+	log {
+		output stdout
+		format json
+	}
+}
