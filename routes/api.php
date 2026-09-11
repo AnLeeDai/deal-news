@@ -1,9 +1,9 @@
 <?php
 
-use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\UserController;
 use App\Http\Middleware\EnsureUserHasRole;
 use App\RoleEnum;
+use Illuminate\Support\Facades\Route;
 
 // API công khai
 Route::prefix('public')->name('public.')->group(function (): void {
@@ -19,7 +19,7 @@ Route::middleware('auth:sanctum')->group(function (): void {
 
     // Admin
     Route::prefix('admin')
-        ->middleware(EnsureUserHasRole::class . ':' . RoleEnum::ADMIN->value)
+        ->middleware(EnsureUserHasRole::class.':'.RoleEnum::ADMIN->value)
         ->name('admin.')
         ->group(function (): void {
 
@@ -29,7 +29,7 @@ Route::middleware('auth:sanctum')->group(function (): void {
 
     // User
     Route::prefix('user')
-        ->middleware(EnsureUserHasRole::class . ':' . RoleEnum::USER->value)
+        ->middleware(EnsureUserHasRole::class.':'.RoleEnum::USER->value)
         ->name('user.')
         ->group(function (): void {
 
@@ -38,7 +38,7 @@ Route::middleware('auth:sanctum')->group(function (): void {
 
     // Editor
     Route::prefix('editor')
-        ->middleware(EnsureUserHasRole::class . ':' . RoleEnum::EDITOR->value)
+        ->middleware(EnsureUserHasRole::class.':'.RoleEnum::EDITOR->value)
         ->name('editor.')
         ->group(function (): void {
 

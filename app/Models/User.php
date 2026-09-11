@@ -54,7 +54,6 @@ class User extends Authenticatable
         }, attempts: 3);
     }
 
-
     public static function generateUserCode(RoleEnum $role): string
     {
         return DB::transaction(function () use ($role): string {

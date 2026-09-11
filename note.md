@@ -6,3 +6,5 @@ docker compose up -d
 | Redis | `127.0.0.1:6380` |
 | MinIO API | `127.0.0.1:9002` |
 | MinIO Console | `127.0.0.1:9003` | (minioadmin)
+
+./vendor/bin/pint --parallel --max-processes=4

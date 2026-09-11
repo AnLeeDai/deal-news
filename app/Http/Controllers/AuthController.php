@@ -4,9 +4,9 @@ namespace App\Http\Controllers;
 
 use App\Http\Requests\RegisterRequest;
 use App\Http\Requests\VerifyUserRequest;
-use App\RoleEnum;
 use App\Http\Resources\AuthResource;
 use App\Models\User;
+use App\RoleEnum;
 use Illuminate\Auth\Events\Registered;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
