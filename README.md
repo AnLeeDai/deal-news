@@ -14,7 +14,10 @@ nên không phù hợp với yêu cầu chạy liên tục.
    - `APP_KEY`: chạy `php artisan key:generate --show`, giữ nguyên key qua các lần
      deploy và dùng cùng key cho web/worker. Không dùng `generateValue` của Render
      trực tiếp thay cho Laravel key có tiền tố `base64:`.
-   - `APP_URL`: URL HTTPS thực tế của web service hoặc custom domain.
+   - `APP_URL`: custom domain HTTPS của backend, ví dụ `https://api.example.com`.
+   - `CORS_ALLOWED_ORIGINS`: origin frontend, ví dụ `https://app.example.com`.
+   - `SANCTUM_STATEFUL_DOMAINS`: `app.example.com,api.example.com` (không có scheme).
+   - `SESSION_DOMAIN`: `.example.com` để cookie dùng chung giữa frontend/backend.
    - `DB_URL`: `mysql://USER:PASSWORD@HOST:3306/DATABASE`, URL-encode ký tự đặc biệt
      trong tài khoản. Dùng MySQL production truy cập được từ Render; `localhost`
      không phải database bên ngoài container. Cho phép outbound IP của Render
@@ -80,11 +83,83 @@ scheduler vì `routes/console.php` hiện chưa có scheduled task.
 ```sh
 php artisan test --compact
 docker build -t deal-news:production .
-bash tests/docker-smoke.sh deal-news:production
 ```
 
-Smoke test dùng container và database tạm riêng, không dùng `.env` local.
 `docker-compose.yml` hiện có tiếp tục dùng cho MySQL/Redis/MinIO khi phát triển.
+
+## API xác thực SPA cho Next.js
+
+Backend dùng [Sanctum SPA Authentication](https://laravel.com/framework/docs/13.x/sanctum#spa-authentication):
+cookie session xác thực người dùng; `XSRF-TOKEN` chống CSRF, không phải access token.
+API không trả access token. Frontend không lưu token trong localStorage và không
+gửi `Authorization: Bearer`.
+
+Ở production, gắn custom domain cùng domain gốc cho Vercel và Render, ví dụ
+`app.example.com` và `api.example.com`. Hai domain mặc định `*.vercel.app` và
+`*.onrender.com` không đáp ứng điều kiện này. Thay các domain ví dụ trong
+`.env.production.example` bằng domain thực tế. Preview Vercel có domain khác
+cũng cần cấu hình domain phù hợp trước khi dùng cookie đăng nhập.
+
+Local dùng nhất quán `localhost`: frontend `http://localhost:3000`, backend
+`http://localhost:8000`; không trộn `127.0.0.1` với `localhost`.
+
+```dotenv
+CORS_ALLOWED_ORIGINS=http://localhost:3000
+SANCTUM_STATEFUL_DOMAINS=localhost:3000,localhost:8000
+SESSION_DOMAIN=null
+SESSION_SECURE_COOKIE=false
+```
+
+Session production lưu trong database, cookie `HttpOnly`, `Secure`, `SameSite=Lax`.
+Giữ `APP_KEY` cố định qua các lần deploy. Sau khi đổi biến môi trường, deploy lại
+để container tạo lại config cache.
+
+| Endpoint | Kết quả |
+| --- | --- |
+| `GET /sanctum/csrf-cookie` | 204, khởi tạo cookie CSRF và session |
+| `POST /api/sign-up` | 201, tạo tài khoản và đăng nhập; `message`: `Đăng ký thành công` |
+| `POST /api/sign-in` | 200, đăng nhập và đổi session; `message`: `Đăng nhập thành công` |
+| `GET /api/user` | 200, thông tin người dùng hiện tại; 401 nếu chưa đăng nhập |
+| `POST /api/sign-out` | 200, thông báo `Đăng xuất thành công` và `user_code` của user vừa đăng xuất; vô hiệu hóa session |
+
+Đăng ký nhận `full_name`, `email`, `password`, `password_confirmation`. Mật khẩu
+tối thiểu 8 ký tự, có chữ hoa, chữ thường, số và ký tự đặc biệt. `id` UUID,
+`user_code` và `role=user` do backend cấp; không gửi các trường này từ frontend.
+Đăng nhập nhận `email`, `password`. Kết quả thành công đăng ký, đăng nhập và
+đăng xuất chỉ có hai trường `user_code` và `message` ở cấp ngoài cùng.
+`GET /api/user` trả thông tin người dùng trong object `data`.
+
+Ví dụ Axios chạy **trong trình duyệt** của Next.js (cài Axios khi tạo dự án FE):
+
+```js
+import axios from 'axios';
+
+const api = axios.create({
+  baseURL: process.env.NEXT_PUBLIC_API_URL, // http://localhost:8000 hoặc https://api.example.com
+  withCredentials: true,
+  withXSRFToken: true,
+  headers: { Accept: 'application/json' },
+});
+
+await api.get('/sanctum/csrf-cookie');
+await api.post('/api/sign-in', { email, password });
+// Hoặc: await api.post('/api/sign-up', { full_name, email, password, password_confirmation });
+const { data: { data: user } } = await api.get('/api/user');
+await api.post('/api/sign-out');
+```
+
+Axios đọc cookie `XSRF-TOKEN` và gửi header `X-XSRF-TOKEN`; trình duyệt tự gửi
+cookie session. Nếu dùng `fetch`, đặt `credentials: 'include'` và tự gửi giá trị
+cookie `XSRF-TOKEN` đã URL-decode vào `X-XSRF-TOKEN` cho POST/PUT/PATCH/DELETE.
+Nếu gọi từ Next.js server, cần chuyển tiếp cookie/header phù hợp; cấu hình Axios
+ở trên chỉ áp dụng cho trình duyệt.
+
+Lỗi API trả JSON: 422 khi dữ liệu hoặc thông tin đăng nhập không hợp lệ, 401 khi
+chưa đăng nhập, 419 khi CSRF không hợp lệ, 429 khi vượt giới hạn. Frontend xử lý
+401/419 bằng luồng đăng nhập lại và lấy CSRF cookie mới; không tự lặp vô hạn.
+Đăng nhập giới hạn 5 request/phút/email + IP và 30 request/phút/IP; đăng ký giới
+hạn 5 request/phút/IP. Endpoint cũ `GET /api/verify-user` được thay bằng
+`GET /api/user`; mã người dùng chỉ được cấp khi đăng ký thành công.
 
 Tài liệu đối chiếu: [Laravel deployment](https://laravel.com/framework/docs/deployment),
 [FrankenPHP Docker](https://frankenphp.dev/docs/docker/),
