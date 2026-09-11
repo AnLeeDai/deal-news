@@ -28,4 +28,26 @@ php artisan optimize --no-interaction
 php -r 'require "vendor/autoload.php"; $app = require "bootstrap/app.php"; $app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap(); $app->make("encrypter");'
 
 # The server / queue worker receives Docker's stop signal directly.
+if [ "${1:-}" = php ] && [ "${2:-}" = artisan ] && [ "${3:-}" = octane:frankenphp ]; then
+    for value in "${OCTANE_WORKERS:-1}" "${OCTANE_MAX_REQUESTS:-500}"; do
+        case "$value" in
+            ''|*[!0-9]*|0*) echo 'OCTANE_WORKERS and OCTANE_MAX_REQUESTS must be positive integers without leading zeros.' >&2; exit 1 ;;
+        esac
+    done
+
+    octane_workers=${OCTANE_WORKERS:-1}
+    export OCTANE_THREADS=$((octane_workers + 1))
+
+    set -- "$@" \
+        --host=0.0.0.0 \
+        --port="${PORT:-8080}" \
+        --admin-host=127.0.0.1 \
+        --admin-port=2019 \
+        --workers="${OCTANE_WORKERS:-1}" \
+        --max-requests="${OCTANE_MAX_REQUESTS:-500}" \
+        --caddyfile=/etc/frankenphp/Caddyfile \
+        --log-level=info \
+        --no-interaction
+fi
+
 exec "$@"

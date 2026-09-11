@@ -7,4 +7,6 @@ docker compose up -d
 | MinIO API | `127.0.0.1:9002` |
 | MinIO Console | `127.0.0.1:9003` | (minioadmin)
 
-./vendor/bin/pint --parallel --max-processes=4
+./vendor/bin/pint --parallel --max-processes=8
+
+php artisan octane:start

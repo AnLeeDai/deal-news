@@ -1,16 +1,20 @@
 {
-	admin off
+	admin {$CADDY_SERVER_ADMIN_HOST}:{$CADDY_SERVER_ADMIN_PORT}
 	auto_https off
 	grace_period 30s
 	frankenphp {
-		num_threads {$PHP_THREADS:2}
-		max_threads {$PHP_THREADS:2}
+		num_threads {$OCTANE_THREADS:2}
+		max_threads {$OCTANE_THREADS:2}
 		max_wait_time 10s
+		worker {
+			file "{$APP_PUBLIC_PATH}/frankenphp-worker.php"
+			{$CADDY_SERVER_WORKER_DIRECTIVE}
+		}
 	}
 }
 
-:{$PORT:8080} {
-	root * /app/public
+{$CADDY_SERVER_SERVER_NAME} {
+	root * "{$APP_PUBLIC_PATH}"
 	encode zstd gzip
 
 	header {
@@ -20,20 +24,24 @@
 		-X-Powered-By
 	}
 
-	@hidden {
-		path_regexp hidden (^|/)\.
-		not path /.well-known/*
-	}
-	respond @hidden 404
+	route {
+		@hidden {
+			path_regexp hidden (^|/)\.
+			not path /.well-known/*
+		}
+		respond @hidden 404
 
-	@otherPhp {
-		path_regexp php (?i)\.php($|/)
-		not path /index.php /index.php/*
-	}
-	respond @otherPhp 404
+		@otherPhp {
+			path_regexp php (?i)\.php($|/)
+			not path /index.php /index.php/*
+		}
+		respond @otherPhp 404
 
-	php_server {
-		try_files {path} index.php
+		php_server {
+			index frankenphp-worker.php
+			try_files {path} frankenphp-worker.php
+			resolve_root_symlink
+		}
 	}
 
 	log {

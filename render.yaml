@@ -80,8 +80,14 @@ envVarGroups:
         value: s3
       - key: TRUSTED_PROXIES
         value: '*'
-      - key: PHP_THREADS
-        value: '2'
+      - key: OCTANE_SERVER
+        value: frankenphp
+      - key: OCTANE_HTTPS
+        value: 'true'
+      - key: OCTANE_WORKERS
+        value: '1'
+      - key: OCTANE_MAX_REQUESTS
+        value: '500'
       - key: GOMEMLIMIT
         value: 128MiB
       - key: MAIL_MAILER

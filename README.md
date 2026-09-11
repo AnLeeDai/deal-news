@@ -51,14 +51,21 @@ php artisan queue:work --sleep=3 --tries=3 --backoff=5 --timeout=60 --memory=128
 - Docker build cài Composer dependencies bằng `--no-dev`, tối ưu autoload và
   build Vite assets. Không đưa `.env`, database local, dev server marker hay
   cache local vào image.
-- FrankenPHP phục vụ `/app/public`, nghe mọi interface trên `PORT` của Render.
+- Laravel Octane chạy bằng `php artisan octane:frankenphp`, phục vụ `/app/public`
+  và nghe mọi interface trên `PORT` của Render. File worker được lấy từ package
+  Octane khi build; không tải binary hoặc ghi vào `public` lúc khởi động.
   TLS được Render xử lý. `TRUSTED_PROXIES=*` chỉ dùng sau Render edge; local
   mặc định không tin forwarded headers. Chỉ scheme và client IP được tin cậy,
   không tin `X-Forwarded-Host`/`X-Forwarded-Port`.
 - Container chạy bằng `www-data`; `storage` và `bootstrap/cache` có quyền ghi.
   Entrypoint yêu cầu key hợp lệ, production, debug tắt, rồi chạy `artisan optimize`
   với environment runtime. Không migrate hoặc xóa application cache mỗi lần restart.
-- Web giới hạn 2 PHP threads, PHP memory 128 MB/request, Go soft memory target
+- `OCTANE_SERVER=frankenphp`, `OCTANE_WORKERS=1`, `OCTANE_MAX_REQUESTS=500`.
+  Worker tự tái khởi tạo sau 500 request. Tổng PHP threads bằng số worker cộng 1;
+  mặc định là 2, để dành 1 thread cho xử lý PHP ngoài worker. `OCTANE_HTTPS=true`
+  giúp URL được sinh ra dùng HTTPS sau Render edge; không bật TLS trong container.
+  Caddy admin chỉ nghe `127.0.0.1:2019` cho `octane:status`, `octane:reload` và stop.
+  PHP memory 128 MB/thread, Go soft memory target
   128 MiB. Đây không phải giới hạn tổng RAM: Render vẫn áp trần 512 MB cho toàn bộ
   service. Theo dõi Metrics và tăng tài nguyên khi workload thực tế cần thêm.
 - Health check `/up` kiểm tra Laravel boot. Nó không xác nhận database, object
@@ -66,13 +73,15 @@ php artisan queue:work --sleep=3 --tries=3 --backoff=5 --timeout=60 --memory=128
   khỏi routing sau khoảng 15 giây lỗi liên tiếp và restart sau khoảng 60 giây.
   Docker `HEALTHCHECK` local chỉ đánh dấu trạng thái; restart policy riêng mới
   khởi động lại container khi tiến trình thoát.
-- Web nhận `SIGTERM` trực tiếp và có 30 giây drain, Render chờ tối đa 60 giây.
+- Tiến trình Octane nhận `SIGTERM` trực tiếp và yêu cầu FrankenPHP dừng qua
+  cổng quản trị nội bộ. Caddy có 30 giây drain, Render chờ tối đa 60 giây.
   Worker có timeout 60 giây, `retry_after=90` và thời gian shutdown 90 giây.
   Job dài hơn phải điều chỉnh đồng bộ các giá trị này. Job có side effect cần
   idempotent vì queue vẫn có thể giao lại job sau sự cố.
 - Khi release, Render thay container web/worker để nạp code và cache mới.
-  `php artisan reload` có thể yêu cầu worker hiện tại thoát sau job đang chạy,
-  nhưng không thay thế việc deploy image mới. Log được ghi ra stdout/stderr.
+  Render giám sát và khởi động lại service khi tiến trình thoát. Trong container
+  hiện tại, `php artisan octane:reload` nạp lại worker; thay code hoặc environment
+  trên Render cần deploy image mới. Log được ghi ra stdout/stderr.
 
 Không cấu hình nào bảo đảm uptime 100%. Kiểm tra Events, runtime logs, RAM, DB
 và HTTP sau deploy thực tế; bật thông báo lỗi của Render. Blueprint không tạo
@@ -83,7 +92,12 @@ scheduler vì `routes/console.php` hiện chưa có scheduled task.
 ```sh
 php artisan test --compact
 docker build -t deal-news:production .
+python3 tests/docker-smoke.py deal-news:production
 ```
+
+Smoke test chạy container riêng với giới hạn 512 MB / 0.5 CPU và SQLite tạm,
+kiểm tra CSRF, cách ly phiên đăng nhập, phân quyền admin, recycle, reload,
+restart và SIGTERM. Không dùng database hoặc tài khoản thật.
 
 `docker-compose.yml` hiện có tiếp tục dùng cho MySQL/Redis/MinIO khi phát triển.
 
@@ -119,7 +133,7 @@ Giữ `APP_KEY` cố định qua các lần deploy. Sau khi đổi biến môi t
 | `GET /sanctum/csrf-cookie` | 204, khởi tạo cookie CSRF và session |
 | `POST /api/sign-up` | 201, tạo tài khoản và đăng nhập; `message`: `Đăng ký thành công` |
 | `POST /api/sign-in` | 200, đăng nhập và đổi session; `message`: `Đăng nhập thành công` |
-| `GET /api/user` | 200, thông tin người dùng hiện tại; 401 nếu chưa đăng nhập |
+| `GET /api/me` | 200, thông tin người dùng hiện tại; 401 nếu chưa đăng nhập |
 | `POST /api/sign-out` | 200, thông báo `Đăng xuất thành công` và `user_code` của user vừa đăng xuất; vô hiệu hóa session |
 
 Đăng ký nhận `full_name`, `email`, `password`, `password_confirmation`. Mật khẩu
@@ -127,7 +141,7 @@ tối thiểu 8 ký tự, có chữ hoa, chữ thường, số và ký tự đ�
 `user_code` và `role=user` do backend cấp; không gửi các trường này từ frontend.
 Đăng nhập nhận `email`, `password`. Kết quả thành công đăng ký, đăng nhập và
 đăng xuất chỉ có hai trường `user_code` và `message` ở cấp ngoài cùng.
-`GET /api/user` trả thông tin người dùng trong object `data`.
+`GET /api/me` trả thông tin người dùng trong object `data`.
 
 Ví dụ Axios chạy **trong trình duyệt** của Next.js (cài Axios khi tạo dự án FE):
 
@@ -144,7 +158,7 @@ const api = axios.create({
 await api.get('/sanctum/csrf-cookie');
 await api.post('/api/sign-in', { email, password });
 // Hoặc: await api.post('/api/sign-up', { full_name, email, password, password_confirmation });
-const { data: { data: user } } = await api.get('/api/user');
+const { data: { data: user } } = await api.get('/api/me');
 await api.post('/api/sign-out');
 ```
 
@@ -159,9 +173,10 @@ chưa đăng nhập, 419 khi CSRF không hợp lệ, 429 khi vượt giới hạ
 401/419 bằng luồng đăng nhập lại và lấy CSRF cookie mới; không tự lặp vô hạn.
 Đăng nhập giới hạn 5 request/phút/email + IP và 30 request/phút/IP; đăng ký giới
 hạn 5 request/phút/IP. Endpoint cũ `GET /api/verify-user` được thay bằng
-`GET /api/user`; mã người dùng chỉ được cấp khi đăng ký thành công.
+`GET /api/me`; mã người dùng chỉ được cấp khi đăng ký thành công.
 
-Tài liệu đối chiếu: [Laravel deployment](https://laravel.com/framework/docs/deployment),
+Tài liệu đối chiếu: [Laravel deployment](https://laravel.com/framework/docs/13.x/deployment),
+[Laravel Octane](https://laravel.com/framework/docs/13.x/octane#serving-your-application),
 [FrankenPHP Docker](https://frankenphp.dev/docs/docker/),
 [Render Docker](https://render.com/docs/docker),
 [Render health checks](https://render.com/docs/health-checks),

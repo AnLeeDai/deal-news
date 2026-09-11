@@ -12,6 +12,9 @@
 auth.json
 **/node_modules
 vendor
+/frankenphp
+/frankenphp-*
+/public/frankenphp-worker.php
 tests
 *.md
 *.log
