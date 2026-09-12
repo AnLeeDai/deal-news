@@ -29,7 +29,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $exceptions->render(function (AuthenticationException $exception, Request $request): ?JsonResponse {
             if ($request->is('api/*') || $request->expectsJson()) {
                 return response()->json([
-                    'message' => 'Không thể xác minh người dùng',
+                    'message' => 'Unable to authenticate user',
                 ], 401);
             }
 

@@ -4,7 +4,6 @@ namespace App\Http\Resources;
 
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
-use Illuminate\Http\Resources\Json\ResourceCollection;
 
 class UserResource extends JsonResource
 {
@@ -21,12 +20,5 @@ class UserResource extends JsonResource
             'created_at' => $this->created_at,
             'updated_at' => $this->updated_at,
         ];
-    }
-
-    public static function allUsers(ResourceCollection $users): ResourceCollection
-    {
-        return $users->additional([
-            'message' => 'Lấy danh sách người dùng thành công',
-        ]);
     }
 }

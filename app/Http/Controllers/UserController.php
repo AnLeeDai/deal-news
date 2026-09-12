@@ -20,8 +20,9 @@ class UserController
 
     public function allUsers(): ResourceCollection
     {
-        $users = $this->userModel->paginate(10)->toResourceCollection();
-
-        return UserResource::allUsers($users);
+        return $this->userModel->paginate(10)->toResourceCollection()
+            ->additional([
+                'message' => 'Get all users successfully',
+            ]);
     }
 }

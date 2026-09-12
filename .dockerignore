@@ -14,6 +14,7 @@ auth.json
 vendor
 /frankenphp
 /frankenphp-*
+/php.ini
 /public/frankenphp-worker.php
 tests
 *.md

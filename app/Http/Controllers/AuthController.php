@@ -29,7 +29,10 @@ class AuthController
 
         $request->session()->regenerate();
 
-        return AuthResource::login(Auth::guard('web')->user());
+        return (new AuthResource(Auth::guard('web')->user()))
+            ->additional(['message' => 'Logged in successfully'])
+            ->response()
+            ->setStatusCode(200);
     }
 
     public function userRegister(RegisterRequest $request): JsonResponse
@@ -47,7 +50,10 @@ class AuthController
         Auth::guard('web')->login($user);
         $request->session()->regenerate();
 
-        return AuthResource::register($user);
+        return (new AuthResource($user))
+            ->additional(['message' => 'Registered successfully'])
+            ->response()
+            ->setStatusCode(201);
     }
 
     public function userLogout(Request $request): JsonResponse
@@ -58,6 +64,9 @@ class AuthController
         $request->session()->invalidate();
         $request->session()->regenerateToken();
 
-        return AuthResource::logout($user);
+        return (new AuthResource($user))
+            ->additional(['message' => 'Logged out successfully'])
+            ->response()
+            ->setStatusCode(200);
     }
 }

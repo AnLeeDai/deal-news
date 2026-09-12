@@ -67,7 +67,7 @@ class User extends Authenticatable
             $sequence = DB::table('user_code_sequences')->where('role', $role->value)->lockForUpdate()->first();
 
             if (! $sequence) {
-                abort(422, "Không tìm thấy vai trò của: {$role->value} để tạo mã người dùng");
+                abort(422, "Role {$role->value} was not found when generating the user code");
             }
 
             $number = $sequence->last_number + 1;

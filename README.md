@@ -1,93 +1,99 @@
-# Deal News — deploy Docker trên Render
+# Deal News — Docker deployment on Render
 
-`render.yaml` khai báo web và queue worker riêng, mỗi service dùng gói trả phí
-`0.5c-512mb` tại Singapore. Blueprint tạo **hai service có tính phí**; MySQL và
-object storage được cung cấp riêng. Render Free ngủ sau 15 phút không có truy cập,
-nên không phù hợp với yêu cầu chạy liên tục.
+`render.yaml` defines separate web and queue worker services, each using the paid
+`0.5c-512mb` plan in Singapore. The Blueprint creates **two billable services**;
+MySQL and object storage are provisioned separately. Render Free sleeps after
+15 minutes of inactivity, so it does not meet the requirement for continuous operation.
 
-## Cấu hình lần đầu
+## Initial setup
 
-1. Đưa dự án lên Git repository, mở Render → **New → Blueprint**, chọn repository
-   và dùng `render.yaml`. Nếu ứng dụng nằm trong thư mục con của repository, sửa
-   `rootDir` trong Blueprint cho cả hai service.
-2. Điền các biến được yêu cầu:
-   - `APP_KEY`: chạy `php artisan key:generate --show`, giữ nguyên key qua các lần
-     deploy và dùng cùng key cho web/worker. Không dùng `generateValue` của Render
-     trực tiếp thay cho Laravel key có tiền tố `base64:`.
-   - `APP_URL`: custom domain HTTPS của backend, ví dụ `https://api.example.com`.
-   - `CORS_ALLOWED_ORIGINS`: origin frontend, ví dụ `https://app.example.com`.
-   - `SANCTUM_STATEFUL_DOMAINS`: `app.example.com,api.example.com` (không có scheme).
-   - `SESSION_DOMAIN`: `.example.com` để cookie dùng chung giữa frontend/backend.
-   - `DB_URL`: `mysql://USER:PASSWORD@HOST:3306/DATABASE`, URL-encode ký tự đặc biệt
-     trong tài khoản. Dùng MySQL production truy cập được từ Render; `localhost`
-     không phải database bên ngoài container. Cho phép outbound IP của Render
-     trong firewall của nhà cung cấp database nếu họ yêu cầu.
-3. Session, cache và queue mặc định lưu trong MySQL để tồn tại sau restart.
-   Migration chạy bằng `php artisan migrate --force --no-interaction` trong
-   **Pre-Deploy Command của web**. Chỉ web sở hữu bước migration. Khi triển khai
-   thay đổi schema, giữ tương thích với phiên bản cũ đang phục vụ và deploy web
-   thành công trước khi deploy worker phụ thuộc schema mới.
-4. Thêm thông tin object storage vào environment group `deal-news-production`
-   trước khi dùng chức năng lưu file: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`,
-   `AWS_DEFAULT_REGION`, `AWS_BUCKET`; thêm `AWS_ENDPOINT`, `AWS_URL` và
-   `AWS_USE_PATH_STYLE_ENDPOINT` nếu nhà cung cấp yêu cầu. `FILESYSTEM_DISK=s3`;
-   file upload không được lưu bền vững trên filesystem tạm của Render.
-   `.env.production.example` liệt kê các giá trị cần cấu hình. Không upload `.env`
-   local vào image hoặc dùng tài khoản MinIO local cho production.
-5. Nếu MySQL yêu cầu CA riêng, thêm Render secret file và đặt
-   `MYSQL_ATTR_SSL_CA=/etc/secrets/mysql-ca.pem` trên cả hai service. Đặt mail
-   provider thực tế khi cần gửi email; mặc định hiện tại là `MAIL_MAILER=log`.
+1. Push the project to a Git repository, open Render → **New → Blueprint**, select
+   the repository, and use `render.yaml`. If the application is in a subdirectory,
+   update `rootDir` in the Blueprint for both services.
+2. Set the required variables:
+   - `APP_KEY`: run `php artisan key:generate --show`, keep the key unchanged across
+     deployments, and use the same key for the web and worker services. Do not use
+     Render's `generateValue` directly in place of a Laravel key prefixed with `base64:`.
+   - `APP_URL`: the backend's custom HTTPS domain, such as `https://api.example.com`.
+   - `CORS_ALLOWED_ORIGINS`: the frontend origin, such as `https://app.example.com`.
+   - `SANCTUM_STATEFUL_DOMAINS`: `app.example.com,api.example.com` (without a scheme).
+   - `SESSION_DOMAIN`: `.example.com` to share cookies between the frontend and backend.
+   - `DB_URL`: `mysql://USER:PASSWORD@HOST:3306/DATABASE`; URL-encode special characters
+     in the credentials. Use a production MySQL server accessible from Render;
+     `localhost` does not refer to a database outside the container. Allow Render's
+     outbound IP addresses through the database provider's firewall if required.
+3. Sessions, cache, and queues use MySQL by default to survive restarts.
+   Migrations run with `php artisan migrate --force --no-interaction` in the
+   **web service's Pre-Deploy Command**. Only the web service runs migrations.
+   Keep schema changes compatible with the version still serving requests, and
+   deploy the web service successfully before deploying a worker that requires the new schema.
+4. Add object storage credentials to the `deal-news-production` environment group
+   before using file storage: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`,
+   `AWS_DEFAULT_REGION`, and `AWS_BUCKET`. Add `AWS_ENDPOINT`, `AWS_URL`, and
+   `AWS_USE_PATH_STYLE_ENDPOINT` if required by the provider. `FILESYSTEM_DISK=s3`;
+   uploaded files are not stored durably on Render's ephemeral filesystem.
+   `.env.production.example` lists the required settings. Do not include the local
+   `.env` in the image or use local MinIO credentials in production.
+5. If MySQL requires a custom CA, add a Render secret file and set
+   `MYSQL_ATTR_SSL_CA=/etc/secrets/mysql-ca.pem` on both services. Configure a real
+   mail provider when email delivery is needed; the current default is `MAIL_MAILER=log`.
 
-Nếu tạo service thủ công: chọn runtime **Docker**, Dockerfile `./Dockerfile`,
-để trống Docker Command của web, Health Check Path `/up`, và Pre-Deploy Command
-như trên. Worker dùng cùng image và các biến môi trường, Docker Command:
+When creating services manually, select the **Docker** runtime, use `./Dockerfile`,
+leave the web service's Docker Command empty, set Health Check Path to `/up`, and
+use the Pre-Deploy Command above. The worker uses the same image and environment
+variables with this Docker Command:
 
 ```sh
 php artisan queue:work --sleep=3 --tries=3 --backoff=5 --timeout=60 --memory=128 --max-jobs=1000 --max-time=3600 --no-interaction
 ```
 
-## Runtime và phục hồi
+## Runtime and recovery
 
-- Docker build cài Composer dependencies bằng `--no-dev`, tối ưu autoload và
-  build Vite assets. Không đưa `.env`, database local, dev server marker hay
-  cache local vào image.
-- Laravel Octane chạy bằng `php artisan octane:frankenphp`, phục vụ `/app/public`
-  và nghe mọi interface trên `PORT` của Render. File worker được lấy từ package
-  Octane khi build; không tải binary hoặc ghi vào `public` lúc khởi động.
-  TLS được Render xử lý. `TRUSTED_PROXIES=*` chỉ dùng sau Render edge; local
-  mặc định không tin forwarded headers. Chỉ scheme và client IP được tin cậy,
-  không tin `X-Forwarded-Host`/`X-Forwarded-Port`.
-- Container chạy bằng `www-data`; `storage` và `bootstrap/cache` có quyền ghi.
-  Entrypoint yêu cầu key hợp lệ, production, debug tắt, rồi chạy `artisan optimize`
-  với environment runtime. Không migrate hoặc xóa application cache mỗi lần restart.
+- The Docker build installs Composer dependencies with `--no-dev`, optimizes
+  autoloading, and builds Vite assets. The image excludes `.env`, local databases,
+  development server markers, and local caches.
+- Laravel Octane runs with `php artisan octane:frankenphp`, serves `/app/public`,
+  and listens on all interfaces using Render's `PORT`. The worker file is copied
+  from the Octane package during the build; startup does not download binaries or
+  write to `public`. Render handles TLS. Use `TRUSTED_PROXIES=*` only behind Render's
+  edge; local development does not trust forwarded headers by default. Only the
+  scheme and client IP are trusted, not `X-Forwarded-Host` or `X-Forwarded-Port`.
+- The container runs as `www-data`; `storage` and `bootstrap/cache` are writable.
+  The entrypoint requires a valid key, the production environment, and debug mode
+  disabled, then runs `artisan optimize` with the runtime environment. It does not
+  run migrations or clear the application cache on every restart.
 - `OCTANE_SERVER=frankenphp`, `OCTANE_WORKERS=1`, `OCTANE_MAX_REQUESTS=500`.
-  Worker tự tái khởi tạo sau 500 request. Tổng PHP threads bằng số worker cộng 1;
-  mặc định là 2, để dành 1 thread cho xử lý PHP ngoài worker. `OCTANE_HTTPS=true`
-  giúp URL được sinh ra dùng HTTPS sau Render edge; không bật TLS trong container.
-  Caddy admin chỉ nghe `127.0.0.1:2019` cho `octane:status`, `octane:reload` và stop.
-  PHP memory 128 MB/thread, Go soft memory target
-  128 MiB. Đây không phải giới hạn tổng RAM: Render vẫn áp trần 512 MB cho toàn bộ
-  service. Theo dõi Metrics và tăng tài nguyên khi workload thực tế cần thêm.
-- Health check `/up` kiểm tra Laravel boot. Nó không xác nhận database, object
-  storage hay mọi chức năng nghiệp vụ đều hoạt động. Render loại instance lỗi
-  khỏi routing sau khoảng 15 giây lỗi liên tiếp và restart sau khoảng 60 giây.
-  Docker `HEALTHCHECK` local chỉ đánh dấu trạng thái; restart policy riêng mới
-  khởi động lại container khi tiến trình thoát.
-- Tiến trình Octane nhận `SIGTERM` trực tiếp và yêu cầu FrankenPHP dừng qua
-  cổng quản trị nội bộ. Caddy có 30 giây drain, Render chờ tối đa 60 giây.
-  Worker có timeout 60 giây, `retry_after=90` và thời gian shutdown 90 giây.
-  Job dài hơn phải điều chỉnh đồng bộ các giá trị này. Job có side effect cần
-  idempotent vì queue vẫn có thể giao lại job sau sự cố.
-- Khi release, Render thay container web/worker để nạp code và cache mới.
-  Render giám sát và khởi động lại service khi tiến trình thoát. Trong container
-  hiện tại, `php artisan octane:reload` nạp lại worker; thay code hoặc environment
-  trên Render cần deploy image mới. Log được ghi ra stdout/stderr.
+  Workers recycle after 500 requests. The total PHP thread count is the worker
+  count plus one, defaulting to two to reserve one thread for PHP outside the worker.
+  `OCTANE_HTTPS=true` generates HTTPS URLs behind Render's edge without enabling TLS
+  inside the container. Caddy's admin endpoint listens only on `127.0.0.1:2019` for
+  `octane:status`, `octane:reload`, and shutdown. PHP memory is limited to 128 MB per
+  thread, and Go has a soft memory target of 128 MiB. These are not total RAM limits:
+  Render still enforces a 512 MB limit for the entire service. Monitor Metrics and
+  increase resources when the workload requires more capacity.
+- The `/up` health check verifies that Laravel boots. It does not confirm that the
+  database, object storage, or every application feature works. Render removes a
+  failing instance from routing after approximately 15 seconds of consecutive
+  failures and restarts it after approximately 60 seconds. A local Docker
+  `HEALTHCHECK` only records health status; a separate restart policy restarts the
+  container when its process exits.
+- Octane receives `SIGTERM` directly and asks FrankenPHP to stop through the internal
+  admin endpoint. Caddy has 30 seconds to drain requests; Render waits up to 60 seconds.
+  The queue worker has a 60-second timeout, `retry_after=90`, and a 90-second shutdown
+  period. Adjust these values together for longer jobs. Jobs with side effects must
+  be idempotent because the queue can deliver a job again after a failure.
+- During a release, Render replaces the web and worker containers to load new code
+  and caches. Render monitors services and restarts them when their process exits.
+  Within an existing container, `php artisan octane:reload` reloads workers; changing
+  code or environment variables on Render requires deploying a new image. Logs are
+  written to stdout and stderr.
 
-Không cấu hình nào bảo đảm uptime 100%. Kiểm tra Events, runtime logs, RAM, DB
-và HTTP sau deploy thực tế; bật thông báo lỗi của Render. Blueprint không tạo
-scheduler vì `routes/console.php` hiện chưa có scheduled task.
+No configuration guarantees 100% uptime. Check Events, runtime logs, RAM, the database,
+and HTTP responses after an actual deployment, and enable Render failure notifications.
+The Blueprint does not create a scheduler because `routes/console.php` currently has
+no scheduled tasks.
 
-## Kiểm tra trước deploy
+## Checks before deployment
 
 ```sh
 php artisan test --compact
@@ -95,27 +101,27 @@ docker build -t deal-news:production .
 python3 tests/docker-smoke.py deal-news:production
 ```
 
-Smoke test chạy container riêng với giới hạn 512 MB / 0.5 CPU và SQLite tạm,
-kiểm tra CSRF, cách ly phiên đăng nhập, phân quyền admin, recycle, reload,
-restart và SIGTERM. Không dùng database hoặc tài khoản thật.
+The smoke test runs a separate container limited to 512 MB and 0.5 CPU with a temporary
+SQLite database. It checks CSRF, session isolation, administrator authorization,
+worker recycling, reloads, restarts, and SIGTERM. It does not use real databases or accounts.
 
-`docker-compose.yml` hiện có tiếp tục dùng cho MySQL/Redis/MinIO khi phát triển.
+Continue using the existing `docker-compose.yml` for MySQL, Redis, and MinIO during development.
 
-## API xác thực SPA cho Next.js
+## SPA authentication API for Next.js
 
-Backend dùng [Sanctum SPA Authentication](https://laravel.com/framework/docs/13.x/sanctum#spa-authentication):
-cookie session xác thực người dùng; `XSRF-TOKEN` chống CSRF, không phải access token.
-API không trả access token. Frontend không lưu token trong localStorage và không
-gửi `Authorization: Bearer`.
+The backend uses [Sanctum SPA Authentication](https://laravel.com/framework/docs/13.x/sanctum#spa-authentication):
+a session cookie authenticates the user, while `XSRF-TOKEN` protects against CSRF and
+is not an access token. The API does not return access tokens. The frontend does not
+store tokens in localStorage or send an `Authorization: Bearer` header.
 
-Ở production, gắn custom domain cùng domain gốc cho Vercel và Render, ví dụ
-`app.example.com` và `api.example.com`. Hai domain mặc định `*.vercel.app` và
-`*.onrender.com` không đáp ứng điều kiện này. Thay các domain ví dụ trong
-`.env.production.example` bằng domain thực tế. Preview Vercel có domain khác
-cũng cần cấu hình domain phù hợp trước khi dùng cookie đăng nhập.
+In production, configure custom domains sharing the same root domain for Vercel and
+Render, such as `app.example.com` and `api.example.com`. The default `*.vercel.app`
+and `*.onrender.com` domains do not meet this requirement. Replace the example domains
+in `.env.production.example` with the real domains. Vercel previews on another domain
+also need suitable domain configuration before using session authentication.
 
-Local dùng nhất quán `localhost`: frontend `http://localhost:3000`, backend
-`http://localhost:8000`; không trộn `127.0.0.1` với `localhost`.
+Use `localhost` consistently during local development: `http://localhost:3000` for
+the frontend and `http://localhost:8000` for the backend. Do not mix `127.0.0.1` and `localhost`.
 
 ```dotenv
 CORS_ALLOWED_ORIGINS=http://localhost:3000
@@ -124,32 +130,33 @@ SESSION_DOMAIN=null
 SESSION_SECURE_COOKIE=false
 ```
 
-Session production lưu trong database, cookie `HttpOnly`, `Secure`, `SameSite=Lax`.
-Giữ `APP_KEY` cố định qua các lần deploy. Sau khi đổi biến môi trường, deploy lại
-để container tạo lại config cache.
+Production sessions are stored in the database, with `HttpOnly`, `Secure`, and
+`SameSite=Lax` cookies. Keep `APP_KEY` unchanged across deployments. After changing
+environment variables, redeploy so the container rebuilds the configuration cache.
 
-| Endpoint | Kết quả |
+| Endpoint | Result |
 | --- | --- |
-| `GET /sanctum/csrf-cookie` | 204, khởi tạo cookie CSRF và session |
-| `POST /api/sign-up` | 201, tạo tài khoản và đăng nhập; `message`: `Đăng ký thành công` |
-| `POST /api/sign-in` | 200, đăng nhập và đổi session; `message`: `Đăng nhập thành công` |
-| `GET /api/me` | 200, thông tin người dùng hiện tại; 401 nếu chưa đăng nhập |
-| `POST /api/sign-out` | 200, thông báo `Đăng xuất thành công` và `user_code` của user vừa đăng xuất; vô hiệu hóa session |
+| `GET /sanctum/csrf-cookie` | 204; initializes CSRF and session cookies |
+| `POST /api/sign-up` | 201; creates an account and signs in; `message`: `Registered successfully` |
+| `POST /api/sign-in` | 200; signs in and regenerates the session; `message`: `Logged in successfully` |
+| `GET /api/me` | 200 with the current user's details; 401 when unauthenticated |
+| `POST /api/sign-out` | 200; returns `Logged out successfully` and the user's code and role in `data`; invalidates the session |
 
-Đăng ký nhận `full_name`, `email`, `password`, `password_confirmation`. Mật khẩu
-tối thiểu 8 ký tự, có chữ hoa, chữ thường, số và ký tự đặc biệt. `id` UUID,
-`user_code` và `role=user` do backend cấp; không gửi các trường này từ frontend.
-Đăng nhập nhận `email`, `password`. Kết quả thành công đăng ký, đăng nhập và
-đăng xuất chỉ có hai trường `user_code` và `message` ở cấp ngoài cùng.
-`GET /api/me` trả thông tin người dùng trong object `data`.
+Registration accepts `full_name`, `email`, `password`, and `password_confirmation`.
+Passwords must contain at least eight characters, including uppercase and lowercase
+letters, a number, and a special character. The backend assigns the UUID `id`,
+`user_code`, and `role=user`; do not send these fields from the frontend.
+Login accepts `email` and `password`. Successful registration, login, and logout
+responses contain `data.user_code`, `data.user_role`, and a top-level `message`.
+`GET /api/me` returns the user's details in the `data` object.
 
-Ví dụ Axios chạy **trong trình duyệt** của Next.js (cài Axios khi tạo dự án FE):
+Axios example running **in the browser** in Next.js (install Axios when creating the frontend):
 
 ```js
 import axios from 'axios';
 
 const api = axios.create({
-  baseURL: process.env.NEXT_PUBLIC_API_URL, // http://localhost:8000 hoặc https://api.example.com
+  baseURL: process.env.NEXT_PUBLIC_API_URL, // http://localhost:8000 or https://api.example.com
   withCredentials: true,
   withXSRFToken: true,
   headers: { Accept: 'application/json' },
@@ -157,25 +164,26 @@ const api = axios.create({
 
 await api.get('/sanctum/csrf-cookie');
 await api.post('/api/sign-in', { email, password });
-// Hoặc: await api.post('/api/sign-up', { full_name, email, password, password_confirmation });
+// Or: await api.post('/api/sign-up', { full_name, email, password, password_confirmation });
 const { data: { data: user } } = await api.get('/api/me');
 await api.post('/api/sign-out');
 ```
 
-Axios đọc cookie `XSRF-TOKEN` và gửi header `X-XSRF-TOKEN`; trình duyệt tự gửi
-cookie session. Nếu dùng `fetch`, đặt `credentials: 'include'` và tự gửi giá trị
-cookie `XSRF-TOKEN` đã URL-decode vào `X-XSRF-TOKEN` cho POST/PUT/PATCH/DELETE.
-Nếu gọi từ Next.js server, cần chuyển tiếp cookie/header phù hợp; cấu hình Axios
-ở trên chỉ áp dụng cho trình duyệt.
+Axios reads the `XSRF-TOKEN` cookie and sends the `X-XSRF-TOKEN` header; the browser
+sends the session cookie automatically. With `fetch`, set `credentials: 'include'`
+and send the URL-decoded `XSRF-TOKEN` cookie value in `X-XSRF-TOKEN` for POST, PUT,
+PATCH, and DELETE requests. Requests from the Next.js server must forward the
+appropriate cookies and headers; the Axios configuration above applies only to the browser.
 
-Lỗi API trả JSON: 422 khi dữ liệu hoặc thông tin đăng nhập không hợp lệ, 401 khi
-chưa đăng nhập, 419 khi CSRF không hợp lệ, 429 khi vượt giới hạn. Frontend xử lý
-401/419 bằng luồng đăng nhập lại và lấy CSRF cookie mới; không tự lặp vô hạn.
-Đăng nhập giới hạn 5 request/phút/email + IP và 30 request/phút/IP; đăng ký giới
-hạn 5 request/phút/IP. Endpoint cũ `GET /api/verify-user` được thay bằng
-`GET /api/me`; mã người dùng chỉ được cấp khi đăng ký thành công.
+API errors return JSON: 422 for invalid input or credentials, 401 when unauthenticated,
+419 for invalid CSRF tokens, and 429 when rate limits are exceeded. Handle 401 and 419
+by signing in again and obtaining a new CSRF cookie; do not retry indefinitely.
+Login is limited to five requests per minute per email and IP combination, plus
+30 requests per minute per IP. Registration is limited to five requests per minute
+per IP. The former `GET /api/verify-user` endpoint has been replaced by `GET /api/me`;
+user codes are assigned only after successful registration.
 
-Tài liệu đối chiếu: [Laravel deployment](https://laravel.com/framework/docs/13.x/deployment),
+References: [Laravel deployment](https://laravel.com/framework/docs/13.x/deployment),
 [Laravel Octane](https://laravel.com/framework/docs/13.x/octane#serving-your-application),
 [FrankenPHP Docker](https://frankenphp.dev/docs/docker/),
 [Render Docker](https://render.com/docs/docker),

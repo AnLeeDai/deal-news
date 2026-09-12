@@ -25,7 +25,19 @@ test('administrator can access the paginated user list', function () {
         ->assertJsonCount(1, 'data')
         ->assertJsonPath('data.0.id', $admin->id)
         ->assertJsonPath('meta.total', 1)
-        ->assertJsonStructure(['data', 'links', 'meta', 'message']);
+        ->assertJsonPath('message', 'Get all users successfully')
+        ->assertExactJsonStructure([
+            'data' => ['*' => [
+                'id', 'full_name', 'email', 'user_code', 'role',
+                'email_verified_at', 'created_at', 'updated_at',
+            ]],
+            'links' => ['first', 'last', 'prev', 'next'],
+            'meta' => [
+                'current_page', 'from', 'last_page', 'links',
+                'path', 'per_page', 'to', 'total',
+            ],
+            'message',
+        ]);
 });
 
 test('non administrator roles receive 403 even when claiming an administrator role in the request', function (RoleEnum $role) {
@@ -42,7 +54,7 @@ test('non administrator roles receive 403 even when claiming an administrator ro
         'user_role' => RoleEnum::ADMIN->value,
     ]), ['X-Role' => RoleEnum::ADMIN->value])
         ->assertForbidden()
-        ->assertExactJson(['message' => 'Bạn không có quyền thực hiện thao tác này']);
+        ->assertExactJson(['message' => 'You do not have permission to perform this action']);
 
     $this->getJson('/api/me')->assertOk()->assertJsonPath('data.id', $user->id);
 })->with([RoleEnum::USER, RoleEnum::EDITOR]);
@@ -50,7 +62,7 @@ test('non administrator roles receive 403 even when claiming an administrator ro
 test('guest receives 401 instead of the role authorization error', function () {
     $this->getJson('/api/admin/users')
         ->assertUnauthorized()
-        ->assertExactJson(['message' => 'Không thể xác minh người dùng']);
+        ->assertExactJson(['message' => 'Unable to authenticate user']);
 });
 
 test('administrator can also access the shared authenticated profile', function () {
@@ -64,11 +76,17 @@ test('administrator can also access the shared authenticated profile', function 
 
     $this->actingAs($admin, 'web')->getJson('/api/me')
         ->assertOk()
-        ->assertJsonPath('data.id', $admin->id);
+        ->assertJsonPath('data.id', $admin->id)
+        ->assertExactJsonStructure([
+            'data' => [
+                'id', 'full_name', 'email', 'user_code', 'role',
+                'email_verified_at', 'created_at', 'updated_at',
+            ],
+        ]);
 });
 
 test('guest receives 401 for the shared authenticated profile without an accept header', function () {
     $this->get('/api/me')
         ->assertUnauthorized()
-        ->assertExactJson(['message' => 'Không thể xác minh người dùng']);
+        ->assertExactJson(['message' => 'Unable to authenticate user']);
 });
