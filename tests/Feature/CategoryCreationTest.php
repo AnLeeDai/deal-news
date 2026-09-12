@@ -14,6 +14,7 @@ use Illuminate\Support\Facades\Storage;
 uses(TestCase::class, RefreshDatabase::class);
 
 test('administrator creates a category with a UUID and receives the category resource', function (array $optionalAttributes) {
+    config(['images.disk' => 'public', 'filesystems.disks.public.url' => 'https://media.example.com']);
     $admin = User::registerUser([
         'full_name' => 'Administrator',
         'email' => 'administrator@example.com',
@@ -29,7 +30,7 @@ test('administrator creates a category with a UUID and receives the category res
         ->assertJsonPath('message', 'Category created successfully')
         ->assertExactJsonStructure([
             'data' => [
-                'id', 'name', 'slug', 'thumbnail', 'total_articles',
+                'id', 'name', 'slug', 'thumbnail', 'thumbnail_url', 'total_articles',
                 'description', 'created_at', 'updated_at',
             ],
             'message',
@@ -38,7 +39,8 @@ test('administrator creates a category with a UUID and receives the category res
         ->assertJsonPath('data.slug', 'movie-news')
         ->assertJsonPath('data.total_articles', 0)
         ->assertJsonPath('data.thumbnail', $optionalAttributes['thumbnail'] ?? null)
-        ->assertJsonPath('data.description', $optionalAttributes['description'] ?? null);
+        ->assertJsonPath('data.description', $optionalAttributes['description'] ?? null)
+        ->assertJsonPath('data.thumbnail_url', isset($optionalAttributes['thumbnail']) ? 'https://media.example.com/'.$optionalAttributes['thumbnail'] : null);
     expect($response->json('data.id'))->toBeUuid();
     $this->assertDatabaseHas('categories', [
         'id' => $response->json('data.id'),
@@ -111,7 +113,7 @@ test('administrator receives paginated category resources including an empty col
         ->assertJsonPath('message', 'Categories retrieved successfully')
         ->assertExactJsonStructure([
             'data' => ['*' => [
-                'id', 'name', 'slug', 'thumbnail', 'total_articles',
+                'id', 'name', 'slug', 'thumbnail', 'thumbnail_url', 'total_articles',
                 'description', 'created_at', 'updated_at',
             ]],
             'links' => ['first', 'last', 'prev', 'next'],
@@ -330,3 +332,49 @@ test('a failure after inserting a category rolls back the record and removes its
     $disk->assertDirectoryEmpty('/');
     Exceptions::assertReported(fn (RuntimeException $exception): bool => $exception->getMessage() === 'Category creation failed after insertion.');
 });
+
+test('category responses resolve thumbnail URLs using the image disk', function (string $disk, ?string $publicUrl, ?string $thumbnail, ?string $expectedUrl) {
+    $this->freezeTime();
+    config([
+        'images.disk' => $disk,
+        'filesystems.disks.public.url' => 'https://media.example.com',
+        'filesystems.disks.s3' => [
+            'driver' => 's3',
+            'key' => 'test-key',
+            'secret' => 'test-secret',
+            'region' => 'us-east-1',
+            'bucket' => 'test-bucket',
+            'url' => $publicUrl,
+        ],
+    ]);
+    $admin = User::registerUser([
+        'full_name' => 'Administrator',
+        'email' => 'administrator@example.com',
+        'password' => 'TestPassword123!',
+    ], RoleEnum::ADMIN);
+
+    $created = $this->actingAs($admin, 'web')->postJson('/api/admin/categories', [
+        'name' => 'Movie News',
+        'thumbnail' => $thumbnail,
+    ])->assertCreated()->assertJsonPath('data.thumbnail', $thumbnail);
+
+    $url = $created->json('data.thumbnail_url');
+    if ($expectedUrl === 'signed') {
+        expect($url)->toStartWith('https://test-bucket.s3.amazonaws.com/images/thumbnail.webp?');
+        parse_str(parse_url($url, PHP_URL_QUERY), $query);
+        expect($query['X-Amz-Expires'])->toBe('3600');
+        expect($query['X-Amz-Signature'])->not->toBeEmpty();
+    } else {
+        $created->assertJsonPath('data.thumbnail_url', $expectedUrl);
+    }
+
+    $this->getJson('/api/admin/categories')->assertOk()
+        ->assertJsonPath('data.0.thumbnail_url', $url);
+    $this->assertDatabaseHas('categories', ['id' => $created->json('data.id'), 'thumbnail' => $thumbnail]);
+})->with([
+    'public disk' => ['public', null, 'images/thumbnail.webp', 'https://media.example.com/images/thumbnail.webp'],
+    'public S3' => ['s3', 'https://cdn.example.com', 'images/thumbnail.webp', 'https://cdn.example.com/images/thumbnail.webp'],
+    'private S3' => ['s3', null, 'images/thumbnail.webp', 'signed'],
+    'existing absolute URL' => ['s3', null, 'https://external.example.com/photo.webp', 'https://external.example.com/photo.webp'],
+    'no thumbnail' => ['s3', null, null, null],
+]);
