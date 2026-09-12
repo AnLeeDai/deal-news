@@ -50,20 +50,27 @@ test('authenticated roles upload images as WebP with server generated paths and 
         'disk' => 'local',
     ]);
 
-    $response->assertCreated()->assertExactJsonStructure([
-        'data' => ['path', 'url', 'mime_type', 'size', 'width', 'height', 'expires_at'],
-        'message',
-    ])->assertJsonPath('data.mime_type', 'image/webp')
-        ->assertJsonPath('data.width', 1600)
-        ->assertJsonPath('data.height', 800);
-    $path = $response->json('data.path');
+    $response->assertCreated()->assertHeader('Content-Type', 'application/vnd.api+json')
+        ->assertExactJsonStructure([
+            'data' => [
+                'id', 'type',
+                'attributes' => ['path', 'url', 'mime_type', 'size', 'width', 'height', 'expires_at'],
+            ],
+            'meta' => ['message'],
+        ])->assertJsonPath('data.type', 'images')
+        ->assertJsonPath('meta.message', 'Images uploaded successfully')
+        ->assertJsonPath('data.attributes.mime_type', 'image/webp')
+        ->assertJsonPath('data.attributes.width', 1600)
+        ->assertJsonPath('data.attributes.height', 800);
+    $path = $response->json('data.attributes.path');
+    $response->assertJsonPath('data.id', $path);
     expect($path)->toStartWith('images/'.$user->id.'/')->toEndWith('.webp');
     expect(pathinfo($path, PATHINFO_FILENAME))->toBeUuid();
     $disk->assertExists($path);
     $contents = $disk->get($path);
     expect(strlen($contents))->toBeGreaterThan(0)->toBeLessThanOrEqual(20480);
     expect(getimagesizefromstring($contents)['mime'])->toBe('image/webp');
-    $response->assertJsonPath('data.size', strlen($contents));
+    $response->assertJsonPath('data.attributes.size', strlen($contents));
 })->with([
     [RoleEnum::USER, 'jpg'], [RoleEnum::EDITOR, 'png'], [RoleEnum::ADMIN, 'webp'],
 ]);
@@ -129,7 +136,7 @@ test('a detailed image is resized until its actual WebP bytes fit 20 KB', functi
         'image' => UploadedFile::fake()->createWithContent('detailed.png', $contents),
     ])->assertCreated();
 
-    $stored = $disk->get($response->json('data.path'));
+    $stored = $disk->get($response->json('data.attributes.path'));
     expect(strlen($stored))->toBeLessThanOrEqual(20480);
     $dimensions = getimagesizefromstring($stored);
     expect($dimensions[0])->toBeLessThan(1000);
@@ -147,9 +154,9 @@ test('transparent PNG pixels remain transparent after compression', function () 
 
     $response = $this->actingAs($user, 'web')->postJson('/api/images', [
         'image' => UploadedFile::fake()->createWithContent('transparent.png', imageUploadContents($image)),
-    ])->assertCreated()->assertJsonPath('data.width', 100)->assertJsonPath('data.height', 60);
+    ])->assertCreated()->assertJsonPath('data.attributes.width', 100)->assertJsonPath('data.attributes.height', 60);
 
-    $stored = imagecreatefromstring($disk->get($response->json('data.path')));
+    $stored = imagecreatefromstring($disk->get($response->json('data.attributes.path')));
     expect(imagecolorsforindex($stored, imagecolorat($stored, 0, 0))['alpha'])->toBe(127);
     expect(imagecolorsforindex($stored, imagecolorat($stored, 50, 30))['alpha'])->toBe(0);
 });
@@ -168,9 +175,9 @@ test('JPEG orientation is applied and EXIF metadata is stripped', function (int 
 
     $response = $this->actingAs($user, 'web')->postJson('/api/images', [
         'image' => UploadedFile::fake()->createWithContent('portrait.jpg', $contents),
-    ])->assertCreated()->assertJsonPath('data.width', $width)->assertJsonPath('data.height', $height);
+    ])->assertCreated()->assertJsonPath('data.attributes.width', $width)->assertJsonPath('data.attributes.height', $height);
 
-    $stored = $disk->get($response->json('data.path'));
+    $stored = $disk->get($response->json('data.attributes.path'));
     expect($stored)->not->toContain('Exif');
     $decoded = imagecreatefromstring($stored);
     foreach (['red', 'green', 'blue'] as $index => $channel) {
@@ -194,10 +201,14 @@ test('batch upload returns distinct processed images in input order', function (
 
     $response = $this->actingAs($user, 'web')->postJson('/api/images/batch', [
         'images' => [UploadedFile::fake()->image('same.jpg', 120, 60), UploadedFile::fake()->image('same.jpg', 80, 100)],
-    ])->assertCreated()->assertJsonCount(2, 'data')
-        ->assertJsonPath('data.0.width', 120)->assertJsonPath('data.1.width', 80);
+    ])->assertCreated()->assertHeader('Content-Type', 'application/vnd.api+json')
+        ->assertJsonCount(2, 'data')
+        ->assertJsonPath('data.0.type', 'images')->assertJsonPath('data.1.type', 'images')
+        ->assertJsonPath('meta.message', 'Images uploaded successfully')
+        ->assertJsonPath('data.0.attributes.width', 120)->assertJsonPath('data.1.attributes.width', 80);
 
-    $paths = array_column($response->json('data'), 'path');
+    $paths = $response->json('data.*.attributes.path');
+    $response->assertJsonPath('data.0.id', $paths[0])->assertJsonPath('data.1.id', $paths[1]);
     expect(array_unique($paths))->toHaveCount(2);
     $disk->assertExists($paths);
     $disk->assertCount('images/'.$user->id, 2);
@@ -271,8 +282,11 @@ test('owner retrieves image metadata and can delete the same image repeatedly', 
     $disk->put($path, $contents);
 
     $this->actingAs($user, 'web')->getJson('/api/images?'.http_build_query(['path' => $path]))
-        ->assertOk()->assertJsonPath('data.path', $path)->assertJsonPath('data.width', 90)
-        ->assertJsonPath('data.size', strlen($contents));
+        ->assertOk()->assertHeader('Content-Type', 'application/vnd.api+json')
+        ->assertJsonPath('data.id', $path)->assertJsonPath('data.type', 'images')
+        ->assertJsonMissingPath('meta.message')
+        ->assertJsonPath('data.attributes.path', $path)->assertJsonPath('data.attributes.width', 90)
+        ->assertJsonPath('data.attributes.size', strlen($contents));
     $this->deleteJson('/api/images', ['path' => $path])->assertOk();
     $this->deleteJson('/api/images', ['path' => $path])->assertOk();
 
@@ -346,15 +360,15 @@ test('S3 compatible storage receives processed bytes and returns the correct ima
     $command = $handler->getLastCommand();
     expect($command->getName())->toBe('PutObject');
     expect($command['Bucket'])->toBe('image-bucket');
-    expect($command['Key'])->toBe($response->json('data.path'));
+    expect($command['Key'])->toBe($response->json('data.attributes.path'));
     expect($command['ContentType'])->toBe('image/webp');
     expect((string) $handler->getLastRequest()->getBody())->toStartWith('RIFF');
     if ($publicUrl !== null) {
-        $response->assertJsonPath('data.url', $publicUrl.'/'.$response->json('data.path'))
-            ->assertJsonPath('data.expires_at', null);
+        $response->assertJsonPath('data.attributes.url', $publicUrl.'/'.$response->json('data.attributes.path'))
+            ->assertJsonPath('data.attributes.expires_at', null);
     } else {
-        expect($response->json('data.url'))->toStartWith($endpoint.'/image-bucket/images/')->toContain('X-Amz-Signature=');
-        $response->assertJsonPath('data.expires_at', now()->addHour()->toIso8601String());
+        expect($response->json('data.attributes.url'))->toStartWith($endpoint.'/image-bucket/images/')->toContain('X-Amz-Signature=');
+        $response->assertJsonPath('data.attributes.expires_at', now()->addHour()->toIso8601String());
     }
 })->with([
     'MinIO' => ['http://127.0.0.1:9002', null, true, 'us-east-1'],

@@ -2,26 +2,30 @@
 
 namespace App\Http\Resources;
 
-use Illuminate\Filesystem\FilesystemAdapter;
+use App\Http\Controllers\ImageCompressController;
+use App\Models\Category;
 use Illuminate\Http\Request;
-use Illuminate\Http\Resources\Json\JsonResource;
-use Illuminate\Support\Facades\Storage;
+use Illuminate\Http\Resources\JsonApi\JsonApiResource;
 
-class CategoryResource extends JsonResource
+class CategoryResource extends JsonApiResource
 {
+    public static function created(Category $category): self
+    {
+        return (new self($category))->additional(['meta' => ['message' => 'Category created successfully']]);
+    }
+
     /**
      * Transform the resource into an array.
      *
      * @return array<string, mixed>
      */
-    public function toArray(Request $request): array
+    public function toAttributes(Request $request): array
     {
         return [
-            'id' => $this->id,
             'name' => $this->name,
             'slug' => $this->slug,
             'thumbnail' => $this->thumbnail,
-            'thumbnail_url' => $this->thumbnailUrl(),
+            'thumbnail_url' => fn (): ?string => $this->thumbnailUrl(),
             'total_articles' => $this->total_articles,
             'description' => $this->description,
             'created_at' => $this->created_at,
@@ -31,21 +35,6 @@ class CategoryResource extends JsonResource
 
     private function thumbnailUrl(): ?string
     {
-        if ($this->thumbnail === null || $this->thumbnail === '') {
-            return null;
-        }
-
-        if (preg_match('~^https?://~i', $this->thumbnail)) {
-            return $this->thumbnail;
-        }
-
-        /** @var FilesystemAdapter $disk */
-        $disk = Storage::disk(config('images.disk'));
-
-        if (($disk->getConfig()['driver'] ?? null) === 's3' && empty($disk->getConfig()['url'])) {
-            return $disk->temporaryUrl($this->thumbnail, now()->addHour());
-        }
-
-        return $disk->url($this->thumbnail);
+        return app(ImageCompressController::class)->getImageUrl($this->thumbnail);
     }
 }

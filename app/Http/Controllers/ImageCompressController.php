@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Http\Requests\ImagePathRequest;
 use App\Http\Requests\ImageUploadRequest;
+use App\Http\Resources\ImageCollection;
 use App\Http\Resources\ImageResource;
 use App\ImageCompressor;
 use Illuminate\Filesystem\FilesystemAdapter;
@@ -20,24 +21,42 @@ class ImageCompressController
 {
     public function __construct(private ImageCompressor $compressor) {}
 
-    public function uploadSingleImage(ImageUploadRequest $request): JsonResponse
+    public function uploadSingle(ImageUploadRequest $request): ImageResource
     {
-        return $this->uploadImages($request, [$request->validated('image')], false);
+        return ImageResource::uploaded($this->uploadSingleImage(
+            $request->validated('image'),
+            (string) $request->user()->getAuthIdentifier(),
+        ));
     }
 
-    public function uploadMultipleImages(ImageUploadRequest $request): JsonResponse
+    public function uploadMultiple(ImageUploadRequest $request): ImageCollection
     {
-        return $this->uploadImages($request, $request->validated('images'), true);
+        return ImageCollection::uploaded($this->uploadMultipleImages(
+            $request->validated('images'),
+            (string) $request->user()->getAuthIdentifier(),
+            'images',
+        ));
     }
 
     /**
-     * Store a validated upload through the same pipeline as the image API.
+     * Upload one validated image through the shared image pipeline.
      *
      * @return array{path: string, url: string, size: int, width: int, height: int, expires_at: ?string}
      */
-    public function storeImage(UploadedFile $image, string $ownerId, string $field = 'image'): array
+    public function uploadSingleImage(UploadedFile $image, string $ownerId, string $field = 'image'): array
     {
         return $this->storeImages([$image], $ownerId, $field, false)[0];
+    }
+
+    /**
+     * Upload multiple validated images through the shared image pipeline.
+     *
+     * @param  list<UploadedFile>  $images
+     * @return list<array{path: string, url: string, size: int, width: int, height: int, expires_at: ?string}>
+     */
+    public function uploadMultipleImages(array $images, string $ownerId, string $field = 'images'): array
+    {
+        return $this->storeImages($images, $ownerId, $field, true);
     }
 
     /**
@@ -52,7 +71,20 @@ class ImageCompressController
         }
     }
 
-    public function getImageUrl(ImagePathRequest $request): JsonResponse
+    public function getImageUrl(?string $path): ?string
+    {
+        if ($path === null || $path === '') {
+            return null;
+        }
+
+        if (preg_match('~^https?://~i', $path)) {
+            return $path;
+        }
+
+        return $this->imageUrlDetails($this->storage(), $path)['url'];
+    }
+
+    public function showImage(ImagePathRequest $request): ImageResource|JsonResponse
     {
         $path = $this->ownedPath($request);
 
@@ -72,7 +104,7 @@ class ImageCompressController
 
         abort_if($image === null, 404, 'Image not found.');
 
-        return (new ImageResource($image))->response();
+        return new ImageResource($image);
     }
 
     public function deleteImage(ImagePathRequest $request): JsonResponse
@@ -86,18 +118,6 @@ class ImageCompressController
         }
 
         return response()->json(['message' => 'Image deleted successfully']);
-    }
-
-    /**
-     * @param  list<UploadedFile>  $uploads
-     */
-    private function uploadImages(ImageUploadRequest $request, array $uploads, bool $multiple): JsonResponse
-    {
-        $images = $this->storeImages($uploads, (string) $request->user()->getAuthIdentifier(), $multiple ? 'images' : 'image', $multiple);
-        $resource = $multiple ? ImageResource::collection($images) : new ImageResource($images[0]);
-
-        return $resource->additional(['message' => 'Images uploaded successfully'])
-            ->response()->setStatusCode(201);
     }
 
     /**
@@ -176,23 +196,33 @@ class ImageCompressController
             throw new RuntimeException('The stored image is not a valid WebP image.');
         }
 
-        $expiresAt = null;
-
-        if (($disk->getConfig()['driver'] ?? null) === 's3' && empty($disk->getConfig()['url'])) {
-            $expiresAt = now()->addHour();
-            $url = $disk->temporaryUrl($path, $expiresAt);
-        } else {
-            $url = $disk->url($path);
-        }
+        $urlDetails = $this->imageUrlDetails($disk, $path);
 
         return [
             'path' => $path,
-            'url' => $url,
+            'url' => $urlDetails['url'],
             'size' => strlen($contents),
             'width' => $dimensions[0],
             'height' => $dimensions[1],
-            'expires_at' => $expiresAt?->toIso8601String(),
+            'expires_at' => $urlDetails['expires_at'],
         ];
+    }
+
+    /**
+     * @return array{url: string, expires_at: ?string}
+     */
+    private function imageUrlDetails(FilesystemAdapter $disk, string $path): array
+    {
+        if (($disk->getConfig()['driver'] ?? null) === 's3' && empty($disk->getConfig()['url'])) {
+            $expiresAt = now()->addHour();
+
+            return [
+                'url' => $disk->temporaryUrl($path, $expiresAt),
+                'expires_at' => $expiresAt->toIso8601String(),
+            ];
+        }
+
+        return ['url' => $disk->url($path), 'expires_at' => null];
     }
 
     private function storageFailure(Throwable $exception): JsonResponse

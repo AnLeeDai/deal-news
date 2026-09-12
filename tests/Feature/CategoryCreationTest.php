@@ -27,20 +27,24 @@ test('administrator creates a category with a UUID and receives the category res
     ]);
 
     $response->assertCreated()
-        ->assertJsonPath('message', 'Category created successfully')
+        ->assertHeader('Content-Type', 'application/vnd.api+json')
+        ->assertJsonPath('data.type', 'categories')
+        ->assertJsonPath('meta.message', 'Category created successfully')
         ->assertExactJsonStructure([
             'data' => [
-                'id', 'name', 'slug', 'thumbnail', 'thumbnail_url', 'total_articles',
-                'description', 'created_at', 'updated_at',
+                'id', 'type', 'attributes' => [
+                    'name', 'slug', 'thumbnail', 'thumbnail_url', 'total_articles',
+                    'description', 'created_at', 'updated_at',
+                ],
             ],
-            'message',
+            'meta' => ['message'],
         ])
-        ->assertJsonPath('data.name', 'Movie News')
-        ->assertJsonPath('data.slug', 'movie-news')
-        ->assertJsonPath('data.total_articles', 0)
-        ->assertJsonPath('data.thumbnail', $optionalAttributes['thumbnail'] ?? null)
-        ->assertJsonPath('data.description', $optionalAttributes['description'] ?? null)
-        ->assertJsonPath('data.thumbnail_url', isset($optionalAttributes['thumbnail']) ? 'https://media.example.com/'.$optionalAttributes['thumbnail'] : null);
+        ->assertJsonPath('data.attributes.name', 'Movie News')
+        ->assertJsonPath('data.attributes.slug', 'movie-news')
+        ->assertJsonPath('data.attributes.total_articles', 0)
+        ->assertJsonPath('data.attributes.thumbnail', $optionalAttributes['thumbnail'] ?? null)
+        ->assertJsonPath('data.attributes.description', $optionalAttributes['description'] ?? null)
+        ->assertJsonPath('data.attributes.thumbnail_url', isset($optionalAttributes['thumbnail']) ? 'https://media.example.com/'.$optionalAttributes['thumbnail'] : null);
     expect($response->json('data.id'))->toBeUuid();
     $this->assertDatabaseHas('categories', [
         'id' => $response->json('data.id'),
@@ -107,21 +111,23 @@ test('administrator receives paginated category resources including an empty col
     $response = $this->actingAs($admin, 'web')->getJson('/api/admin/categories');
 
     $response->assertOk()
+        ->assertHeader('Content-Type', 'application/vnd.api+json')
         ->assertJsonCount(min($categoryCount, 10), 'data')
         ->assertJsonPath('meta.total', $categoryCount)
         ->assertJsonPath('meta.per_page', 10)
-        ->assertJsonPath('message', 'Categories retrieved successfully')
+        ->assertJsonPath('meta.message', 'Categories retrieved successfully')
         ->assertExactJsonStructure([
             'data' => ['*' => [
-                'id', 'name', 'slug', 'thumbnail', 'thumbnail_url', 'total_articles',
-                'description', 'created_at', 'updated_at',
+                'id', 'type', 'attributes' => [
+                    'name', 'slug', 'thumbnail', 'thumbnail_url', 'total_articles',
+                    'description', 'created_at', 'updated_at',
+                ],
             ]],
             'links' => ['first', 'last', 'prev', 'next'],
             'meta' => [
                 'current_page', 'from', 'last_page', 'links',
-                'path', 'per_page', 'to', 'total',
+                'path', 'per_page', 'to', 'total', 'message',
             ],
-            'message',
         ]);
 })->with(['empty' => 0, 'multiple pages' => 11]);
 
@@ -153,9 +159,9 @@ test('administrator creates a category with an uploaded thumbnail processed as W
         'description' => 'The latest movie news',
     ], ['Accept' => 'application/json']);
 
-    $response->assertCreated()->assertJsonPath('data.name', 'Movie News')
-        ->assertJsonPath('data.slug', 'movie-news');
-    $path = $response->json('data.thumbnail');
+    $response->assertCreated()->assertJsonPath('data.attributes.name', 'Movie News')
+        ->assertJsonPath('data.attributes.slug', 'movie-news');
+    $path = $response->json('data.attributes.thumbnail');
     expect($path)->toStartWith('images/'.$admin->id.'/')->toEndWith('.webp');
     $disk->assertExists($path);
     $contents = $disk->get($path);
@@ -168,7 +174,7 @@ test('administrator creates a category with an uploaded thumbnail processed as W
         'thumbnail' => $path,
         'description' => 'The latest movie news',
     ]);
-    $this->getJson('/api/admin/categories')->assertJsonPath('data.0.thumbnail', $path);
+    $this->getJson('/api/admin/categories')->assertJsonPath('data.0.attributes.thumbnail', $path);
 });
 
 test('an invalid thumbnail receives 422 without creating a category or storing files', function () {
@@ -311,7 +317,7 @@ test('category thumbnail uploads share the image API rate limit', function () {
     $disk->assertDirectoryEmpty('/');
 });
 
-test('a failure after inserting a category rolls back the record and removes its uploaded thumbnail', function () {
+test('a failure after inserting a category preserves the record and removes its uploaded thumbnail', function () {
     $disk = Storage::fake('s3');
     $admin = User::registerUser([
         'full_name' => 'Administrator',
@@ -328,7 +334,10 @@ test('a failure after inserting a category rolls back the record and removes its
         'thumbnail' => UploadedFile::fake()->image('thumbnail.jpg'),
     ])->assertInternalServerError();
 
-    $this->assertDatabaseEmpty('categories');
+    $this->assertDatabaseHas('categories', [
+        'name' => 'Movie News',
+        'slug' => 'movie-news',
+    ]);
     $disk->assertDirectoryEmpty('/');
     Exceptions::assertReported(fn (RuntimeException $exception): bool => $exception->getMessage() === 'Category creation failed after insertion.');
 });
@@ -356,20 +365,20 @@ test('category responses resolve thumbnail URLs using the image disk', function 
     $created = $this->actingAs($admin, 'web')->postJson('/api/admin/categories', [
         'name' => 'Movie News',
         'thumbnail' => $thumbnail,
-    ])->assertCreated()->assertJsonPath('data.thumbnail', $thumbnail);
+    ])->assertCreated()->assertJsonPath('data.attributes.thumbnail', $thumbnail);
 
-    $url = $created->json('data.thumbnail_url');
+    $url = $created->json('data.attributes.thumbnail_url');
     if ($expectedUrl === 'signed') {
         expect($url)->toStartWith('https://test-bucket.s3.amazonaws.com/images/thumbnail.webp?');
         parse_str(parse_url($url, PHP_URL_QUERY), $query);
         expect($query['X-Amz-Expires'])->toBe('3600');
         expect($query['X-Amz-Signature'])->not->toBeEmpty();
     } else {
-        $created->assertJsonPath('data.thumbnail_url', $expectedUrl);
+        $created->assertJsonPath('data.attributes.thumbnail_url', $expectedUrl);
     }
 
     $this->getJson('/api/admin/categories')->assertOk()
-        ->assertJsonPath('data.0.thumbnail_url', $url);
+        ->assertJsonPath('data.0.attributes.thumbnail_url', $url);
     $this->assertDatabaseHas('categories', ['id' => $created->json('data.id'), 'thumbnail' => $thumbnail]);
 })->with([
     'public disk' => ['public', null, 'images/thumbnail.webp', 'https://media.example.com/images/thumbnail.webp'],
@@ -378,3 +387,24 @@ test('category responses resolve thumbnail URLs using the image disk', function 
     'existing absolute URL' => ['s3', null, 'https://external.example.com/photo.webp', 'https://external.example.com/photo.webp'],
     'no thumbnail' => ['s3', null, null, null],
 ]);
+
+test('category sparse fields omit unrequested attributes without resolving image storage', function () {
+    config(['images.disk' => 'unconfigured-disk']);
+    $admin = User::registerUser([
+        'full_name' => 'Administrator',
+        'email' => 'administrator@example.com',
+        'password' => 'TestPassword123!',
+    ], RoleEnum::ADMIN);
+    $category = Category::createCategory(['name' => 'Movie News', 'thumbnail' => 'images/thumbnail.webp']);
+
+    $response = $this->actingAs($admin, 'web')->getJson('/api/admin/categories?fields[categories]=name')
+        ->assertOk()
+        ->assertJsonPath('data.0', [
+            'id' => $category->id,
+            'type' => 'categories',
+            'attributes' => ['name' => 'Movie News'],
+        ]);
+
+    parse_str(parse_url($response->json('links.first'), PHP_URL_QUERY), $query);
+    expect($query)->toMatchArray(['fields' => ['categories' => 'name'], 'page' => '1']);
+});

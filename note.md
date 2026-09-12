@@ -10,3 +10,4 @@ docker compose up -d
 ./vendor/bin/pint --parallel --max-processes=8
 
 php artisan octane:start
+php artisan make:resource PostResource --json-api

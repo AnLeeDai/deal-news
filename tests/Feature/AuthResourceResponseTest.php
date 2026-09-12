@@ -6,7 +6,7 @@ use Illuminate\Foundation\Testing\TestCase;
 
 uses(TestCase::class, RefreshDatabase::class);
 
-test('registration returns 201 with a wrapped auth resource and authenticates the user', function () {
+test('registration returns 201 with a JSON API auth resource and authenticates the user', function () {
     $response = $this->postJson('/api/sign-up', [
         'full_name' => 'New User',
         'email' => 'new-user@example.com',
@@ -14,19 +14,28 @@ test('registration returns 201 with a wrapped auth resource and authenticates th
         'password_confirmation' => 'TestPassword123!',
     ]);
 
-    $response->assertCreated()->assertExactJson([
-        'data' => ['user_code' => 'user-000001', 'user_role' => 'user'],
-        'message' => 'Registered successfully',
-    ]);
+    $user = User::where('email', 'new-user@example.com')->sole();
+
+    $response->assertCreated()
+        ->assertHeader('Content-Type', 'application/vnd.api+json')
+        ->assertCookie(config('session.cookie'))
+        ->assertExactJson([
+            'data' => [
+                'id' => $user->id,
+                'type' => 'users',
+                'attributes' => ['user_code' => 'user-000001', 'user_role' => 'user'],
+            ],
+            'meta' => ['message' => 'Registered successfully'],
+        ]);
     $this->assertDatabaseHas('users', [
         'email' => 'new-user@example.com',
         'user_code' => 'user-000001',
         'role' => 'user',
     ]);
-    $this->assertAuthenticatedAs(User::where('email', 'new-user@example.com')->sole(), 'web');
+    $this->assertAuthenticatedAs($user, 'web');
 });
 
-test('login returns 200 with a wrapped auth resource and authenticates the user', function () {
+test('login returns 200 with a JSON API auth resource and authenticates the user', function () {
     $user = User::registerUser([
         'full_name' => 'Existing User',
         'email' => 'existing@example.com',
@@ -36,15 +45,22 @@ test('login returns 200 with a wrapped auth resource and authenticates the user'
     $this->postJson('/api/sign-in', [
         'email' => 'existing@example.com',
         'password' => 'TestPassword123!',
-    ])->assertOk()->assertExactJson([
-        'data' => ['user_code' => $user->user_code, 'user_role' => 'user'],
-        'message' => 'Logged in successfully',
-    ]);
+    ])->assertOk()
+        ->assertHeader('Content-Type', 'application/vnd.api+json')
+        ->assertCookie(config('session.cookie'))
+        ->assertExactJson([
+            'data' => [
+                'id' => $user->id,
+                'type' => 'users',
+                'attributes' => ['user_code' => $user->user_code, 'user_role' => 'user'],
+            ],
+            'meta' => ['message' => 'Logged in successfully'],
+        ]);
 
     $this->assertAuthenticatedAs($user, 'web');
 });
 
-test('logout returns 200 with a wrapped auth resource and ends the session', function () {
+test('logout returns 200 with a JSON API auth resource and ends the session', function () {
     $user = User::registerUser([
         'full_name' => 'Existing User',
         'email' => 'existing@example.com',
@@ -52,9 +68,16 @@ test('logout returns 200 with a wrapped auth resource and ends the session', fun
     ]);
 
     $this->actingAs($user, 'web')->postJson('/api/sign-out')
-        ->assertOk()->assertExactJson([
-            'data' => ['user_code' => $user->user_code, 'user_role' => 'user'],
-            'message' => 'Logged out successfully',
+        ->assertOk()
+        ->assertHeader('Content-Type', 'application/vnd.api+json')
+        ->assertCookie(config('session.cookie'))
+        ->assertExactJson([
+            'data' => [
+                'id' => $user->id,
+                'type' => 'users',
+                'attributes' => ['user_code' => $user->user_code, 'user_role' => 'user'],
+            ],
+            'meta' => ['message' => 'Logged out successfully'],
         ]);
 
     $this->assertGuest('web');

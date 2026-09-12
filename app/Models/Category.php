@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -13,9 +14,11 @@ class Category extends Model
 {
     use HasUuids;
 
-    /**
-     * @param  array{name: string, thumbnail?: ?string, description?: ?string}  $attributes
-     */
+    public function articles(): HasMany
+    {
+        return $this->hasMany(Articles::class);
+    }
+
     public static function createCategory(array $attributes): self
     {
         return DB::transaction(function () use ($attributes): self {

@@ -2,10 +2,10 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Resources\UserCollection;
 use App\Http\Resources\UserResource;
 use App\Models\User;
 use Illuminate\Http\Request;
-use Illuminate\Http\Resources\Json\ResourceCollection;
 
 class UserController
 {
@@ -18,11 +18,8 @@ class UserController
         return new UserResource($request->user());
     }
 
-    public function allUsers(): ResourceCollection
+    public function allUsers(): UserCollection
     {
-        return $this->userModel->paginate(10)->toResourceCollection()
-            ->additional([
-                'message' => 'Get all users successfully',
-            ]);
+        return new UserCollection($this->userModel->paginate(10));
     }
 }

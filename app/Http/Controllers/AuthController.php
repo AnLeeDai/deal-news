@@ -8,7 +8,6 @@ use App\Http\Resources\AuthResource;
 use App\Models\User;
 use App\RoleEnum;
 use Illuminate\Auth\Events\Registered;
-use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Validation\ValidationException;
@@ -19,7 +18,7 @@ class AuthController
         private User $userModel
     ) {}
 
-    public function userLogin(VerifyUserRequest $request): JsonResponse
+    public function userLogin(VerifyUserRequest $request): AuthResource
     {
         if (! Auth::guard('web')->attempt($request->validated())) {
             throw ValidationException::withMessages([
@@ -29,13 +28,10 @@ class AuthController
 
         $request->session()->regenerate();
 
-        return (new AuthResource(Auth::guard('web')->user()))
-            ->additional(['message' => 'Logged in successfully'])
-            ->response()
-            ->setStatusCode(200);
+        return AuthResource::loggedIn(Auth::guard('web')->user());
     }
 
-    public function userRegister(RegisterRequest $request): JsonResponse
+    public function userRegister(RegisterRequest $request): AuthResource
     {
         $user = $this->userModel->registerUser(
             $request->safe()->only([
@@ -50,13 +46,10 @@ class AuthController
         Auth::guard('web')->login($user);
         $request->session()->regenerate();
 
-        return (new AuthResource($user))
-            ->additional(['message' => 'Registered successfully'])
-            ->response()
-            ->setStatusCode(201);
+        return AuthResource::registered($user);
     }
 
-    public function userLogout(Request $request): JsonResponse
+    public function userLogout(Request $request): AuthResource
     {
         $user = Auth::guard('web')->user();
 
@@ -64,9 +57,6 @@ class AuthController
         $request->session()->invalidate();
         $request->session()->regenerateToken();
 
-        return (new AuthResource($user))
-            ->additional(['message' => 'Logged out successfully'])
-            ->response()
-            ->setStatusCode(200);
+        return AuthResource::loggedOut($user);
     }
 }

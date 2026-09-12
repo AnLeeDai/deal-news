@@ -2,17 +2,36 @@
 
 namespace App\Http\Resources;
 
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Http\Resources\Json\JsonResource;
+use Illuminate\Http\Resources\JsonApi\JsonApiResource;
 
-class ImageResource extends JsonResource
+class ImageResource extends JsonApiResource
 {
+    private bool $uploaded = false;
+
     /**
-     * Transform the resource into an array.
+     * @param  array{path: string, url: string, size: int, width: int, height: int, expires_at: ?string}  $image
+     */
+    public static function uploaded(array $image): self
+    {
+        $resource = new self($image);
+        $resource->uploaded = true;
+
+        return $resource->additional(['meta' => ['message' => 'Images uploaded successfully']]);
+    }
+
+    public function toId(Request $request): string
+    {
+        return $this->resource['path'];
+    }
+
+    /**
+     * Get the resource's attributes.
      *
      * @return array<string, mixed>
      */
-    public function toArray(Request $request): array
+    public function toAttributes(Request $request): array
     {
         return [
             'path' => $this->resource['path'],
@@ -23,5 +42,14 @@ class ImageResource extends JsonResource
             'height' => $this->resource['height'],
             'expires_at' => $this->resource['expires_at'],
         ];
+    }
+
+    public function withResponse(Request $request, JsonResponse $response): void
+    {
+        parent::withResponse($request, $response);
+
+        if ($this->uploaded) {
+            $response->setStatusCode(201);
+        }
     }
 }

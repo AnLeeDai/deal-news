@@ -3,38 +3,39 @@
 namespace App\Http\Controllers;
 
 use App\Http\Requests\CategoryCreateRequest;
+use App\Http\Resources\CategoryCollection;
 use App\Http\Resources\CategoryResource;
 use App\Models\Category;
-use Illuminate\Http\JsonResponse;
-use Illuminate\Http\Resources\Json\ResourceCollection;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Str;
 use Throwable;
 
 class CategoryController
 {
     public function __construct(
         private Category $categoryModel,
-        private ImageCompressController $images,
+        private ImageCompressController $imageCompressController,
     ) {}
 
-    public function newCategory(CategoryCreateRequest $request): JsonResponse
+    public function createCategory(CategoryCreateRequest $request): CategoryResource
     {
         $attributes = $request->validated();
+        $attributes['slug'] = Str::slug($attributes['name']);
         $thumbnail = $attributes['thumbnail'] ?? null;
         $uploadedPath = null;
 
         if ($thumbnail instanceof UploadedFile) {
-            $uploaded = $this->images->storeImage($thumbnail, (string) $request->user()->getAuthIdentifier(), 'thumbnail');
+            $uploaded = $this->imageCompressController->uploadSingleImage($thumbnail, (string) $request->user()->getAuthIdentifier(), 'thumbnail');
             $uploadedPath = $uploaded['path'];
             $attributes['thumbnail'] = $uploadedPath;
         }
 
         try {
-            $category = $this->categoryModel->createCategory($attributes);
+            $category = $this->categoryModel->create($attributes)->refresh();
         } catch (Throwable $exception) {
             if ($uploadedPath !== null) {
                 try {
-                    $this->images->deleteStoredImages([$uploadedPath]);
+                    $this->imageCompressController->deleteStoredImages([$uploadedPath]);
                 } catch (Throwable $cleanupException) {
                     report($cleanupException);
                 }
@@ -43,17 +44,11 @@ class CategoryController
             throw $exception;
         }
 
-        return (new CategoryResource($category))
-            ->additional(['message' => 'Category created successfully'])
-            ->response()
-            ->setStatusCode(201);
+        return CategoryResource::created($category);
     }
 
-    public function allCategories(): ResourceCollection
+    public function allCategories(): CategoryCollection
     {
-        return $this->categoryModel->paginate(10)->toResourceCollection()
-            ->additional([
-                'message' => 'Categories retrieved successfully',
-            ]);
+        return new CategoryCollection($this->categoryModel->paginate(10));
     }
 }
