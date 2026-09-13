@@ -4,7 +4,6 @@ namespace App\Http\Controllers;
 
 use App\Http\Requests\ImagePathRequest;
 use App\Http\Requests\ImageUploadRequest;
-use App\Http\Resources\ImageCollection;
 use App\Http\Resources\ImageResource;
 use App\ImageCompressor;
 use Illuminate\Filesystem\FilesystemAdapter;
@@ -29,13 +28,15 @@ class ImageCompressController
         ));
     }
 
-    public function uploadMultiple(ImageUploadRequest $request): ImageCollection
+    public function uploadMultiple(ImageUploadRequest $request): JsonResponse
     {
-        return ImageCollection::uploaded($this->uploadMultipleImages(
+        return ImageResource::collection($this->uploadMultipleImages(
             $request->validated('images'),
             (string) $request->user()->getAuthIdentifier(),
             'images',
-        ));
+        ))->additional(['meta' => ['message' => 'Images uploaded successfully']])
+            ->toResponse($request)
+            ->setStatusCode(201);
     }
 
     /**

@@ -19,6 +19,8 @@ class ArticleResource extends JsonApiResource
         return [
             'title' => $this->title,
             'content' => $this->content,
+            'category_id' => $this->category_id,
+            'user_id' => $this->user_id,
             'thumbnail' => $this->thumbnail,
             'thumbnail_url' => fn (): ?string => $this->imageUrl($this->thumbnail),
             'additional_images' => $this->additional_images,

@@ -3,9 +3,9 @@
 namespace App\Http\Controllers;
 
 use App\Http\Requests\CategoryCreateRequest;
-use App\Http\Resources\CategoryCollection;
 use App\Http\Resources\CategoryResource;
 use App\Models\Category;
+use Illuminate\Http\Resources\JsonApi\AnonymousResourceCollection;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Str;
 use Throwable;
@@ -47,8 +47,10 @@ class CategoryController
         return CategoryResource::created($category);
     }
 
-    public function allCategories(): CategoryCollection
+    public function allCategories(): AnonymousResourceCollection
     {
-        return new CategoryCollection($this->categoryModel->paginate(10));
+        return CategoryResource::collection($this->categoryModel->withCount('articles')->paginate(10))
+            ->preserveQuery()
+            ->additional(['meta' => ['message' => 'Categories retrieved successfully']]);
     }
 }

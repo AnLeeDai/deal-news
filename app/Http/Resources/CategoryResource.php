@@ -26,7 +26,7 @@ class CategoryResource extends JsonApiResource
             'slug' => $this->slug,
             'thumbnail' => $this->thumbnail,
             'thumbnail_url' => fn (): ?string => $this->thumbnailUrl(),
-            'total_articles' => $this->total_articles,
+            'total_articles' => $this->resource->getAttribute('articles_count') ?? $this->total_articles,
             'description' => $this->description,
             'created_at' => $this->created_at,
             'updated_at' => $this->updated_at,

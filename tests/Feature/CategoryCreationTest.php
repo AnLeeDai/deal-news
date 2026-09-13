@@ -131,6 +131,22 @@ test('administrator receives paginated category resources including an empty col
         ]);
 })->with(['empty' => 0, 'multiple pages' => 11]);
 
+test('administrator sees the actual article count for each category', function () {
+    $admin = User::registerUser([
+        'full_name' => 'Administrator',
+        'email' => 'administrator@example.com',
+        'password' => 'TestPassword123!',
+    ], RoleEnum::ADMIN);
+    $category = Category::create(['name' => 'Movie News', 'slug' => 'movie-news']);
+    $category->articles()->create(['title' => 'New Film', 'slug' => 'new-film']);
+
+    expect($category->fresh()->total_articles)->toBe(0);
+
+    $this->actingAs($admin, 'web')->getJson('/api/admin/categories?fields[categories]=total_articles')
+        ->assertOk()
+        ->assertJsonPath('data.0.attributes.total_articles', 1);
+});
+
 test('guest receives 401 when listing categories', function () {
     $this->getJson('/api/admin/categories')->assertUnauthorized();
 });

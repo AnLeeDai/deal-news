@@ -3,9 +3,9 @@
 namespace App\Http\Controllers;
 
 use App\Http\Requests\ArticleCreateRequest;
-use App\Http\Resources\ArticleCollection;
 use App\Http\Resources\ArticleResource;
 use App\Models\Articles;
+use Illuminate\Http\Resources\JsonApi\AnonymousResourceCollection;
 use Illuminate\Http\UploadedFile;
 use Throwable;
 
@@ -64,8 +64,13 @@ class ArticleController
         return ArticleResource::created($article);
     }
 
-    public function allArticles(): ArticleCollection
+    public function allArticles(): AnonymousResourceCollection
     {
-        return new ArticleCollection($this->articlesModel->with(['category', 'user'])->paginate(10));
+        return ArticleResource::collection($this->articlesModel->with([
+            'category' => fn ($query) => $query->withCount('articles'),
+            'user',
+        ])->paginate(10))
+            ->preserveQuery()
+            ->additional(['meta' => ['message' => 'Articles retrieved successfully']]);
     }
 }

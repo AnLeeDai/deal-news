@@ -47,7 +47,7 @@ test('article creation returns a JSON API resource with persisted image attribut
         ->assertExactJsonStructure([
             'data' => [
                 'id', 'type', 'attributes' => [
-                    'title', 'content', 'thumbnail', 'thumbnail_url', 'additional_images', 'additional_images_urls', 'slug', 'created_at', 'updated_at',
+                    'title', 'content', 'category_id', 'user_id', 'thumbnail', 'thumbnail_url', 'additional_images', 'additional_images_urls', 'slug', 'created_at', 'updated_at',
                 ],
             ],
             'meta' => ['message'],
@@ -188,21 +188,28 @@ test('public API returns paginated articles with requested relationships', funct
     $this->getJson('/api/public/articles?'.http_build_query([
         'include' => 'category,user',
         'fields' => [
-            'articles' => 'title,category,user',
-            'categories' => 'name',
+            'articles' => 'title,category_id,user_id,category,user',
+            'categories' => 'name,total_articles',
             'users' => 'user_code',
         ],
     ]))->assertOk()
         ->assertHeader('Content-Type', 'application/vnd.api+json')
         ->assertJsonPath('data.0.id', $article->id)
         ->assertJsonPath('data.0.type', 'articles')
-        ->assertJsonPath('data.0.attributes', ['title' => 'New Film'])
+        ->assertJsonPath('data.0.attributes', [
+            'title' => 'New Film',
+            'category_id' => $category->id,
+            'user_id' => $user->id,
+        ])
         ->assertJsonPath('data.0.relationships', [
             'category' => ['data' => ['id' => $category->id, 'type' => 'categories']],
             'user' => ['data' => ['id' => $user->id, 'type' => 'users']],
         ])
         ->assertJsonPath('included', [
-            ['id' => $category->id, 'type' => 'categories', 'attributes' => ['name' => 'Movie News']],
+            ['id' => $category->id, 'type' => 'categories', 'attributes' => [
+                'name' => 'Movie News',
+                'total_articles' => 1,
+            ]],
             ['id' => $user->id, 'type' => 'users', 'attributes' => ['user_code' => $user->user_code]],
         ])
         ->assertJsonPath('meta.total', 1)
