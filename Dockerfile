@@ -2,7 +2,7 @@
 
 FROM dunglas/frankenphp:1.12.7-php8.5-trixie AS php-base
 
-RUN install-php-extensions pdo_mysql redis pcntl \
+RUN install-php-extensions pdo_mysql redis pcntl gd exif \
     && cp "$PHP_INI_DIR/php.ini-production" "$PHP_INI_DIR/php.ini"
 
 WORKDIR /app

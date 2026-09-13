@@ -1,6 +1,6 @@
 docker compose up -d
 
-| Dịch vụ | Địa chỉ local |
+| Service | Local address |
 |---|---|
 | MySQL | `127.0.0.1:3307` |
 | Redis | `127.0.0.1:6380` |
@@ -10,3 +10,4 @@ docker compose up -d
 ./vendor/bin/pint --parallel --max-processes=8
 
 php artisan octane:start
+php artisan make:resource PostResource --json-api

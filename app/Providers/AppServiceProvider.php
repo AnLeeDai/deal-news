@@ -38,5 +38,7 @@ class AppServiceProvider extends ServiceProvider
         });
 
         RateLimiter::for('registration', fn (Request $request): Limit => Limit::perMinute(5)->by($request->ip()));
+
+        RateLimiter::for('image-uploads', fn (Request $request): Limit => Limit::perMinute(20)->by($request->user()->getAuthIdentifier()));
     }
 }

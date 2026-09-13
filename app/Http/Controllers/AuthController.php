@@ -8,7 +8,6 @@ use App\Http\Resources\AuthResource;
 use App\Models\User;
 use App\RoleEnum;
 use Illuminate\Auth\Events\Registered;
-use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Validation\ValidationException;
@@ -19,7 +18,7 @@ class AuthController
         private User $userModel
     ) {}
 
-    public function userLogin(VerifyUserRequest $request): JsonResponse
+    public function userLogin(VerifyUserRequest $request): AuthResource
     {
         if (! Auth::guard('web')->attempt($request->validated())) {
             throw ValidationException::withMessages([
@@ -29,10 +28,10 @@ class AuthController
 
         $request->session()->regenerate();
 
-        return AuthResource::login(Auth::guard('web')->user());
+        return AuthResource::loggedIn(Auth::guard('web')->user());
     }
 
-    public function userRegister(RegisterRequest $request): JsonResponse
+    public function userRegister(RegisterRequest $request): AuthResource
     {
         $user = $this->userModel->registerUser(
             $request->safe()->only([
@@ -47,10 +46,10 @@ class AuthController
         Auth::guard('web')->login($user);
         $request->session()->regenerate();
 
-        return AuthResource::register($user);
+        return AuthResource::registered($user);
     }
 
-    public function userLogout(Request $request): JsonResponse
+    public function userLogout(Request $request): AuthResource
     {
         $user = Auth::guard('web')->user();
 
@@ -58,6 +57,6 @@ class AuthController
         $request->session()->invalidate();
         $request->session()->regenerateToken();
 
-        return AuthResource::logout($user);
+        return AuthResource::loggedOut($user);
     }
 }

@@ -1,21 +1,37 @@
 <?php
 
+use App\Http\Controllers\ArticleController;
+use App\Http\Controllers\CategoryController;
+use App\Http\Controllers\ImageCompressController;
 use App\Http\Controllers\UserController;
 use App\Http\Middleware\EnsureUserHasRole;
 use App\RoleEnum;
 use Illuminate\Support\Facades\Route;
 
-// API công khai
+// Public API
 Route::prefix('public')->name('public.')->group(function (): void {
-    /** Thêm API công khai tại đây. */
+    /** Add public API routes here. */
+
+    // article routes
+    Route::get('/articles', [ArticleController::class, 'allArticles'])
+        ->name('articles.index');
 });
 
-// API yêu cầu đăng nhập
+// API routes requiring authentication
 Route::middleware('auth:sanctum')->group(function (): void {
 
-    // Chung cho mọi user đã đăng nhập
+    // Shared by all authenticated users
     Route::get('/me', [UserController::class, 'me'])
         ->name('user.show');
+
+    Route::prefix('images')->name('images.')->group(function (): void {
+        Route::post('/', [ImageCompressController::class, 'uploadSingle'])
+            ->middleware('throttle:image-uploads')->name('upload-single');
+        Route::post('/batch', [ImageCompressController::class, 'uploadMultiple'])
+            ->middleware('throttle:image-uploads')->name('upload-multiple');
+        Route::get('/', [ImageCompressController::class, 'showImage'])->name('show');
+        Route::delete('/', [ImageCompressController::class, 'deleteImage'])->name('delete');
+    });
 
     // Admin
     Route::prefix('admin')
@@ -25,6 +41,19 @@ Route::middleware('auth:sanctum')->group(function (): void {
 
             Route::get('/users', [UserController::class, 'allUsers'])
                 ->name('users');
+
+            // category routes
+            Route::get('/categories', [CategoryController::class, 'allCategories'])
+                ->name('categories.index');
+
+            Route::post('/categories', [CategoryController::class, 'createCategory'])
+                ->middleware('throttle:image-uploads')
+                ->name('categories.create');
+
+            // article routes
+            Route::post('/articles', [ArticleController::class, 'createArticle'])
+                ->middleware('throttle:image-uploads')
+                ->name('articles.create');
         });
 
     // User
@@ -43,5 +72,10 @@ Route::middleware('auth:sanctum')->group(function (): void {
         ->group(function (): void {
 
             // Editor routes
+
+            // article routes
+            Route::post('/articles', [ArticleController::class, 'createArticle'])
+                ->middleware('throttle:image-uploads')
+                ->name('articles.create');
         });
 });

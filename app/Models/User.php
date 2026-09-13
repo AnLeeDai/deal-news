@@ -7,6 +7,7 @@ use App\RoleEnum;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Support\Facades\DB;
@@ -17,6 +18,14 @@ use Laravel\Sanctum\HasApiTokens;
 class User extends Authenticatable
 {
     use HasApiTokens, HasUuids, Notifiable;
+
+    /**
+     * @return HasMany<Articles, $this>
+     */
+    public function articles(): HasMany
+    {
+        return $this->hasMany(Articles::class);
+    }
 
     /**
      * Get the attributes that should be cast.
@@ -67,7 +76,7 @@ class User extends Authenticatable
             $sequence = DB::table('user_code_sequences')->where('role', $role->value)->lockForUpdate()->first();
 
             if (! $sequence) {
-                abort(422, "Không tìm thấy vai trò của: {$role->value} để tạo mã người dùng");
+                abort(422, "Role {$role->value} was not found when generating the user code");
             }
 
             $number = $sequence->last_number + 1;

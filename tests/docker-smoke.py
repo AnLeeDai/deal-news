@@ -28,16 +28,26 @@ class Client:
             urllib.request.HTTPCookieProcessor(self.cookies),
         )
 
-    def request(self, path, expected, payload=None, csrf=True):
+    def request(self, path, expected, payload=None, csrf=True, method=None, files=None):
         headers = {"Accept": "application/json", "Origin": "http://localhost:3000"}
         data = None
         if payload is not None:
             data = json.dumps(payload).encode()
             headers["Content-Type"] = "application/json"
-            if csrf:
-                token = next(c.value for c in self.cookies if c.name == "XSRF-TOKEN")
-                headers["X-XSRF-TOKEN"] = urllib.parse.unquote(token)
-        request = urllib.request.Request(self.base + path, data=data, headers=headers)
+        if files is not None:
+            boundary = "image-smoke-" + secrets.token_hex(8)
+            parts = []
+            for field, filename, contents in files:
+                parts.append((
+                    f'--{boundary}\r\nContent-Disposition: form-data; name="{field}"; '
+                    f'filename="{filename}"\r\nContent-Type: image/png\r\n\r\n'
+                ).encode() + contents + b"\r\n")
+            data = b"".join(parts) + f"--{boundary}--\r\n".encode()
+            headers["Content-Type"] = "multipart/form-data; boundary=" + boundary
+        if data is not None and csrf:
+            token = next(c.value for c in self.cookies if c.name == "XSRF-TOKEN")
+            headers["X-XSRF-TOKEN"] = urllib.parse.unquote(token)
+        request = urllib.request.Request(self.base + path, data=data, headers=headers, method=method)
         try:
             response = self.http.open(request, timeout=15)
         except urllib.error.HTTPError as error:
@@ -72,6 +82,7 @@ environment = {
     "ADMIN_NAME": "Smoke Admin",
     "ADMIN_PASSWORD": password,
     "BCRYPT_ROUNDS": "4",
+    "IMAGE_DISK": "public",
 }
 env_args = [item for k, v in environment.items() for item in ("-e", f"{k}={v}")]
 
@@ -122,7 +133,7 @@ try:
         "full_name": "Smoke User", "email": "user@example.com",
         "password": password, "password_confirmation": password,
     })
-    assert result["user_role"] == "user"
+    assert result["data"]["user_role"] == "user"
     user.request("/api/admin/users", 403)
     admin = Client(base)
     admin.request("/sanctum/csrf-cookie", 204)
@@ -136,6 +147,33 @@ try:
         assert admin.request("/api/me", 200)["data"]["email"] == "admin@example.com"
     print("PASS: CSRF, admin authorization, session isolation across worker recycling", flush=True)
 
+    png = base64.b64decode(docker(
+        "exec", name, "php", "-r",
+        '$image = imagecreatetruecolor(1200, 600); ob_start(); imagepng($image); '
+        'echo base64_encode(ob_get_clean());',
+    ).stdout)
+    guest.request("/sanctum/csrf-cookie", 204)
+    guest.request("/api/images", 401, files=[("image", "photo.png", png)])
+    user.request("/api/images", 419, files=[("image", "photo.png", png)], csrf=False)
+    uploaded = user.request("/api/images", 201, files=[("image", "photo.png", png)])["data"]
+    assert uploaded["mime_type"] == "image/webp" and 0 < uploaded["size"] <= 20480
+    assert (uploaded["width"], uploaded["height"]) == (1200, 600)
+    stored = guest.request("/storage/" + uploaded["path"], 200)
+    assert stored[:4] == b"RIFF" and stored[8:12] == b"WEBP" and len(stored) == uploaded["size"]
+    image_query = "/api/images?" + urllib.parse.urlencode({"path": uploaded["path"]})
+    user.request(image_query, 200)
+    admin.request(image_query, 404)
+    admin.request("/api/images", 404, {"path": uploaded["path"]}, method="DELETE")
+    batch = user.request("/api/images/batch", 201, files=[
+        ("images[]", "first.png", png), ("images[]", "second.png", png),
+    ])["data"]
+    assert len(batch) == 2 and batch[0]["path"] != batch[1]["path"]
+    for item in [uploaded, *batch]:
+        user.request("/api/images", 200, {"path": item["path"]}, method="DELETE")
+        guest.request("/storage/" + item["path"], 404)
+    user.request("/api/images", 200, {"path": uploaded["path"]}, method="DELETE")
+    print("PASS: multipart uploads, GD WebP compression, CSRF, image ownership and deletion", flush=True)
+
     docker("exec", name, "php", "artisan", "octane:reload", "--no-interaction")
     assert user.request("/api/me", 200)["data"]["email"] == "user@example.com"
     docker("restart", "--time=45", name)
@@ -144,7 +182,7 @@ try:
         client.base = "http://127.0.0.1:" + port
     wait_ready()
     assert admin.request("/api/me", 200)["data"]["email"] == "admin@example.com"
-    assert user.request("/api/sign-out", 200, {})["message"] == "Đăng xuất thành công"
+    assert user.request("/api/sign-out", 200, {})["message"] == "Logged out successfully"
     user.request("/api/me", 401)
     admin.request("/api/me", 200)
     print("PASS: reload, restart, durable sessions and logout", flush=True)

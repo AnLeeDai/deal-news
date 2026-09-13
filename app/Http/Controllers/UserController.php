@@ -5,7 +5,7 @@ namespace App\Http\Controllers;
 use App\Http\Resources\UserResource;
 use App\Models\User;
 use Illuminate\Http\Request;
-use Illuminate\Http\Resources\Json\ResourceCollection;
+use Illuminate\Http\Resources\JsonApi\AnonymousResourceCollection;
 
 class UserController
 {
@@ -18,10 +18,10 @@ class UserController
         return new UserResource($request->user());
     }
 
-    public function allUsers(): ResourceCollection
+    public function allUsers(): AnonymousResourceCollection
     {
-        $users = $this->userModel->paginate(10)->toResourceCollection();
-
-        return UserResource::allUsers($users);
+        return UserResource::collection($this->userModel->paginate(10))
+            ->preserveQuery()
+            ->additional(['meta' => ['message' => 'Get all users successfully']]);
     }
 }
