@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\UserParamQueryRequest;
 use App\Http\Resources\UserResource;
 use App\Models\User;
 use Illuminate\Http\Request;
@@ -23,5 +24,18 @@ class UserController
         return UserResource::collection($this->userModel->paginate(10))
             ->preserveQuery()
             ->additional(['meta' => ['message' => 'Get all users successfully']]);
+    }
+
+    /** @return array{data: array{id: string, type: string, attributes: object}}|UserResource */
+    public function findUserById(UserParamQueryRequest $request): array|UserResource
+    {
+        $user = $request->validated()['user'];
+        $result = $this->userModel->find($user);
+
+        if (! $result) {
+            return UserResource::notFound();
+        }
+
+        return UserResource::toUserCodeAttributes($result);
     }
 }

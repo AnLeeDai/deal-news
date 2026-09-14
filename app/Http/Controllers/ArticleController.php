@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\ArticaleParamQueryRequest;
 use App\Http\Requests\ArticleCreateRequest;
 use App\Http\Resources\ArticleResource;
 use App\Models\Articles;
@@ -72,5 +73,17 @@ class ArticleController
         ])->paginate(10))
             ->preserveQuery()
             ->additional(['meta' => ['message' => 'Articles retrieved successfully']]);
+    }
+
+    public function findArticleById(ArticaleParamQueryRequest $request): ArticleResource
+    {
+        $article = $request->validated()['article'];
+        $result = $this->articlesModel->find($article);
+
+        if (! $result) {
+            return ArticleResource::notFound();
+        }
+
+        return new ArticleResource($result);
     }
 }

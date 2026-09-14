@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Http\Requests\CategoryCreateRequest;
+use App\Http\Requests\CategoryParamQueryRequest;
 use App\Http\Resources\CategoryResource;
 use App\Models\Category;
 use Illuminate\Http\Resources\JsonApi\AnonymousResourceCollection;
@@ -52,5 +53,18 @@ class CategoryController
         return CategoryResource::collection($this->categoryModel->withCount('articles')->paginate(10))
             ->preserveQuery()
             ->additional(['meta' => ['message' => 'Categories retrieved successfully']]);
+    }
+
+    /** @return array{data: array{id: string, type: string, attributes: object}}|CategoryResource */
+    public function findCategoryById(CategoryParamQueryRequest $request): array|CategoryResource
+    {
+        $category = $request->validated()['category'];
+        $result = $this->categoryModel->find($category);
+
+        if (! $result) {
+            return CategoryResource::notFound();
+        }
+
+        return CategoryResource::toCategoryNameAttributes($result);
     }
 }

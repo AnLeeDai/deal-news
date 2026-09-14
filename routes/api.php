@@ -12,18 +12,32 @@ use Illuminate\Support\Facades\Route;
 Route::prefix('public')->name('public.')->group(function (): void {
     /** Add public API routes here. */
 
+    // user routes
+    Route::get('/user/{user}/detail', [UserController::class, 'findUserById'])
+        ->name('user.show');
+
+    // category routes
+    Route::get('/category/{category}/detail', [CategoryController::class, 'findCategoryById'])
+        ->name('category.show');
+
     // article routes
     Route::get('/articles', [ArticleController::class, 'allArticles'])
         ->name('articles.index');
+
+    Route::get('/article/{article}/detail', [ArticleController::class, 'findArticleById'])
+        ->name('articles.show');
 });
 
 // API routes requiring authentication
 Route::middleware('auth:sanctum')->group(function (): void {
 
     // Shared by all authenticated users
+
+    // user routes
     Route::get('/me', [UserController::class, 'me'])
         ->name('user.show');
 
+    // image routes
     Route::prefix('images')->name('images.')->group(function (): void {
         Route::post('/', [ImageCompressController::class, 'uploadSingle'])
             ->middleware('throttle:image-uploads')->name('upload-single');

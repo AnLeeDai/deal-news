@@ -9,9 +9,23 @@ use Illuminate\Http\Resources\JsonApi\JsonApiResource;
 
 class CategoryResource extends JsonApiResource
 {
+    use HasNotFoundResponse;
+
+    public static function notFound(): self
+    {
+        return (new self(null))->additional(['meta' => ['message' => 'Category not found']]);
+    }
+
     public static function created(Category $category): self
     {
         return (new self($category))->additional(['meta' => ['message' => 'Category created successfully']]);
+    }
+
+    public static function toCategoryNameAttributes(Category $category): array
+    {
+        return (new self($category))->resolve(new Request([
+            'fields' => ['categories' => 'name'],
+        ]));
     }
 
     /**

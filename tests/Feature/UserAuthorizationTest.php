@@ -11,6 +11,48 @@ beforeEach(function () {
     config(['app.debug' => false]);
 });
 
+test('public user detail returns only the user code for the route UUID', function () {
+    $user = User::registerUser([
+        'full_name' => 'Requested User',
+        'email' => 'requested@example.com',
+        'password' => 'TestPassword123!',
+    ]);
+
+    $this->getJson(route('public.user.show', ['user' => $user->id]))
+        ->assertOk()
+        ->assertExactJson([
+            'data' => [
+                'id' => $user->id,
+                'type' => 'users',
+                'attributes' => ['user_code' => $user->user_code],
+            ],
+        ]);
+});
+
+test('public user detail returns 404 for an invalid or unknown UUID', function (string $userId) {
+    $this->getJson(route('public.user.show', ['user' => $userId]))
+        ->assertNotFound()
+        ->assertHeader('Content-Type', 'application/vnd.api+json')
+        ->assertExactJson(['data' => null, 'meta' => ['message' => 'User not found']]);
+})->with([
+    'invalid UUID' => 'not-a-uuid',
+    'user code instead of UUID' => 'USER-000001',
+    'unknown UUID' => '01950000-0000-7000-8000-000000000001',
+]);
+
+test('public user detail returns 404 when a query parameter attempts to replace an invalid route UUID', function () {
+    $user = User::registerUser([
+        'full_name' => 'Requested User',
+        'email' => 'requested@example.com',
+        'password' => 'TestPassword123!',
+    ]);
+
+    $this->getJson(route('public.user.show', ['user' => 'invalid']).'?user='.$user->id)
+        ->assertNotFound()
+        ->assertHeader('Content-Type', 'application/vnd.api+json')
+        ->assertExactJson(['data' => null, 'meta' => ['message' => 'User not found']]);
+});
+
 test('administrator can access the paginated user list', function () {
     $admin = User::registerUser([
         'full_name' => 'Administrator',

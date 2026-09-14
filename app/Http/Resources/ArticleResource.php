@@ -9,6 +9,13 @@ use Illuminate\Http\Resources\JsonApi\JsonApiResource;
 
 class ArticleResource extends JsonApiResource
 {
+    use HasNotFoundResponse;
+
+    public static function notFound(): self
+    {
+        return (new self(null))->additional(['meta' => ['message' => 'Article not found']]);
+    }
+
     public static function created(Articles $article): self
     {
         return (new self($article))->additional(['meta' => ['message' => 'Article created successfully']]);
