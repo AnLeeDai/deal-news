@@ -8,33 +8,32 @@ use Illuminate\Foundation\Testing\TestCase;
 
 uses(TestCase::class, RefreshDatabase::class);
 
-test('article detail returns 404 with a clear message for an invalid or missing UUID', function (string $articleId) {
+test('article detail returns 404 with a clear message for an unknown or overlong slug', function (string $slug) {
     config(['app.debug' => false]);
 
-    $this->getJson(route('public.articles.show', ['article' => $articleId]))
+    $this->getJson(route('public.articles.show', ['slug' => $slug]))
         ->assertNotFound()
         ->assertHeader('Content-Type', 'application/vnd.api+json')
         ->assertExactJson(['data' => null, 'meta' => ['message' => 'Article not found']]);
 })->with([
-    'invalid UUID' => 'not-a-uuid',
-    'UUID with an extra digit' => '011a09702-e4ce-7268-9be8-71344bf70df8',
-    'unknown UUID' => '01950000-0000-7000-8000-000000000001',
+    'unknown slug' => 'unknown-article',
+    'overlong slug' => str_repeat('a', 256),
 ]);
 
-test('article detail returns the requested article for an existing UUID', function () {
+test('article detail returns the requested article for an existing slug', function () {
     $article = Articles::create(['title' => 'Requested Article', 'slug' => 'requested-article']);
 
-    $this->getJson(route('public.articles.show', ['article' => $article->id]))
+    $this->getJson(route('public.articles.show', ['slug' => $article->slug]))
         ->assertOk()
         ->assertJsonPath('data.id', $article->id)
         ->assertJsonPath('data.attributes.title', 'Requested Article');
 });
 
-test('article detail does not allow a query parameter to override the route UUID', function () {
+test('article detail does not allow a query parameter to override the route slug', function () {
     config(['app.debug' => false]);
     $article = Articles::create(['title' => 'Query Article', 'slug' => 'query-article']);
 
-    $this->getJson(route('public.articles.show', ['article' => 'invalid']).'?article='.$article->id)
+    $this->getJson(route('public.articles.show', ['slug' => 'unknown-article']).'?slug='.$article->slug)
         ->assertNotFound()
         ->assertHeader('Content-Type', 'application/vnd.api+json')
         ->assertExactJson(['data' => null, 'meta' => ['message' => 'Article not found']]);
@@ -43,17 +42,25 @@ test('article detail does not allow a query parameter to override the route UUID
 test('article detail returns 200 without missing resource metadata after a previous 404 response', function () {
     $article = Articles::create(['title' => 'Existing Article', 'slug' => 'existing-article']);
 
-    $this->getJson(route('public.articles.show', ['article' => '01950000-0000-7000-8000-000000000001']))
+    $this->getJson(route('public.articles.show', ['slug' => 'unknown-article']))
         ->assertNotFound()
         ->assertHeader('Content-Type', 'application/vnd.api+json')
         ->assertExactJson(['data' => null, 'meta' => ['message' => 'Article not found']]);
 
-    $this->getJson(route('public.articles.show', ['article' => $article->id]))
+    $this->getJson(route('public.articles.show', ['slug' => $article->slug]))
         ->assertOk()
         ->assertHeader('Content-Type', 'application/vnd.api+json')
         ->assertJsonPath('data.id', $article->id)
         ->assertJsonPath('data.attributes.title', 'Existing Article')
         ->assertJsonMissingPath('meta');
+});
+
+test('article detail no longer resolves an article by its ID', function () {
+    $article = Articles::create(['title' => 'Slug Only Article', 'slug' => 'slug-only-article']);
+
+    $this->getJson('/api/public/article/'.$article->id.'/detail')
+        ->assertNotFound()
+        ->assertExactJson(['data' => null, 'meta' => ['message' => 'Article not found']]);
 });
 
 test('an article associates its category and user using UUIDs and eager loads both relationships', function () {

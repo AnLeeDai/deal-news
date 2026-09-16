@@ -2,8 +2,8 @@
 
 namespace App\Http\Controllers;
 
-use App\Http\Requests\ArticaleParamQueryRequest;
 use App\Http\Requests\ArticleCreateRequest;
+use App\Http\Requests\ArticleSlugParamQueryRequest;
 use App\Http\Resources\ArticleResource;
 use App\Models\Articles;
 use Illuminate\Http\Resources\JsonApi\AnonymousResourceCollection;
@@ -67,18 +67,27 @@ class ArticleController
 
     public function allArticles(): AnonymousResourceCollection
     {
-        return ArticleResource::collection($this->articlesModel->with([
-            'category' => fn ($query) => $query->withCount('articles'),
-            'user',
-        ])->paginate(10))
+        return ArticleResource::collection(
+            $this->articlesModel
+                ->with([
+                    'category' => fn ($query) => $query->withCount('articles'),
+                    'user',
+                ])
+                ->orderByDesc('created_at')
+                ->paginate(10)
+        )
             ->preserveQuery()
-            ->additional(['meta' => ['message' => 'Articles retrieved successfully']]);
+            ->additional([
+                'meta' => [
+                    'message' => 'Articles retrieved successfully',
+                ],
+            ]);
     }
 
-    public function findArticleById(ArticaleParamQueryRequest $request): ArticleResource
+    public function findArticleBySlug(ArticleSlugParamQueryRequest $request): ArticleResource
     {
-        $article = $request->validated()['article'];
-        $result = $this->articlesModel->find($article);
+        $slug = $request->validated()['slug'];
+        $result = $this->articlesModel->where('slug', $slug)->first();
 
         if (! $result) {
             return ArticleResource::notFound();

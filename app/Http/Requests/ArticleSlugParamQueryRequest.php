@@ -8,7 +8,7 @@ use Illuminate\Contracts\Validation\Validator;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Http\Exceptions\HttpResponseException;
 
-class ArticaleParamQueryRequest extends FormRequest
+class ArticleSlugParamQueryRequest extends FormRequest
 {
     /**
      * Determine if the user is authorized to make this request.
@@ -26,13 +26,14 @@ class ArticaleParamQueryRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'article' => ['required', 'uuid'],
+            'slug' => ['required', 'string', 'max:255'],
         ];
     }
 
+    /** @return array{slug: mixed} */
     public function validationData(): array
     {
-        return ['article' => $this->route('article')];
+        return ['slug' => $this->route('slug')];
     }
 
     protected function failedValidation(Validator $validator): never

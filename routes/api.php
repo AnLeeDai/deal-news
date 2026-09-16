@@ -17,6 +17,9 @@ Route::prefix('public')->name('public.')->group(function (): void {
         ->name('user.show');
 
     // category routes
+    Route::get('/categories', [CategoryController::class, 'allCategories'])
+        ->name('categories.index');
+
     Route::get('/category/{category}/detail', [CategoryController::class, 'findCategoryById'])
         ->name('category.show');
 
@@ -24,7 +27,7 @@ Route::prefix('public')->name('public.')->group(function (): void {
     Route::get('/articles', [ArticleController::class, 'allArticles'])
         ->name('articles.index');
 
-    Route::get('/article/{article}/detail', [ArticleController::class, 'findArticleById'])
+    Route::get('/article/{slug}/detail', [ArticleController::class, 'findArticleBySlug'])
         ->name('articles.show');
 });
 
@@ -57,9 +60,6 @@ Route::middleware('auth:sanctum')->group(function (): void {
                 ->name('users');
 
             // category routes
-            Route::get('/categories', [CategoryController::class, 'allCategories'])
-                ->name('categories.index');
-
             Route::post('/categories', [CategoryController::class, 'createCategory'])
                 ->middleware('throttle:image-uploads')
                 ->name('categories.create');

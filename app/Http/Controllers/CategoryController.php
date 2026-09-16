@@ -55,7 +55,6 @@ class CategoryController
             ->additional(['meta' => ['message' => 'Categories retrieved successfully']]);
     }
 
-    /** @return array{data: array{id: string, type: string, attributes: object}}|CategoryResource */
     public function findCategoryById(CategoryParamQueryRequest $request): array|CategoryResource
     {
         $category = $request->validated()['category'];
